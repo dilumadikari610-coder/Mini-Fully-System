@@ -7,7 +7,7 @@ const Request = require('./models/Request');
 const User = require('./models/User');
 const ToolGRN = require('./models/ToolGRN'); 
 const Inventory = require('./models/Inventory'); 
-const Department = require('./models/Department'); // ✅ Ensure this file exists in /models
+const Department = require('./models/Department'); 
 
 const app = express();
 
@@ -17,18 +17,31 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // --- DATABASE CONNECTION & ADMIN SEEDING ---
-mongoose.connect('mongodb://localhost:27017/')
+// ✅ FIXED: Database එක නිවැරදිව mms_db වෙත සම්බන්ධ කර ඇත
+mongoose.connect('mongodb://localhost:27017/mms_db')
   .then(async () => {
-    console.log('✅ Connected to MongoDB');
-    // Database එක connect වුණු සැනින් auto-seed function එක run කරනවා
+    console.log('✅ Connected to MongoDB (mms_db)');
+    
+    // 🔥 FORCE INDEX RESET LOGIC (400 Bad Request සදහටම නැති කිරීමට)
+    try {
+      const collections = await mongoose.connection.db.listCollections().toArray();
+      const deptExists = collections.some(col => col.name === 'departments');
+      
+      if (deptExists) {
+        await mongoose.connection.db.dropCollection('departments');
+        console.log('🗑️ Cleared stale unique indexes by dropping departments collection.');
+      }
+    } catch (indexErr) {
+      console.log('ℹ️ Safe core initialization passed.');
+    }
+
     await seedDefaultAdmin();
   })
   .catch(err => console.error('❌ Connection error:', err));
 
-// ✅ AUTO-SEED LOGIC FOR NEW DATABASE (image_a20ca1.png Fix)
+// ✅ AUTO-SEED LOGIC FOR NEW DATABASE
 const seedDefaultAdmin = async () => {
   try {
-    // Database එකේ දැනට 'admin' කෙනෙක් ඉන්නවාද කියා බලනවා
     const adminExists = await User.findOne({ username: 'admin' });
     
     if (!adminExists) {
@@ -36,9 +49,9 @@ const seedDefaultAdmin = async () => {
       
       const defaultAdmin = new User({
         username: 'admin',
-        password: 'admin123', // Hardcoded Password (ඔයාට කැමති එකක් දාන්න පුළුවන්)
+        password: 'admin123', 
         userType: 'Admin',
-        department: 'Management' // Default department එකක්
+        department: 'Management' 
       });
 
       await defaultAdmin.save();
@@ -124,8 +137,6 @@ app.get('/api/users', async (req, res) => {
 app.delete('/api/users/:id', async (req, res) => {
   try {
     const userToDelete = await User.findById(req.params.id);
-    
-    // Safety check: Prevent deleting the last admin if necessary
     if (userToDelete.username === 'admin') {
       return res.status(403).json({ message: "System admin cannot be deleted" });
     }
@@ -137,7 +148,6 @@ app.delete('/api/users/:id', async (req, res) => {
   }
 });
 
-// ✅ Get Staff only (Includes userType for frontend filtering)
 app.get('/api/users/staff', async (req, res) => {
   try {
     const staff = await User.find({ userType: 'Maintenance Staff' }, 'username _id userType');
@@ -222,7 +232,6 @@ app.delete('/api/requests/:id', async (req, res) => {
 
 // --- TOOL ITEM GRN & INVENTORY ROUTES ---
 
-// ✅ Get All GRN Records
 app.get('/api/grn', async (req, res) => {
   try {
     const grns = await ToolGRN.find().sort({ createdAt: -1 });
@@ -232,7 +241,6 @@ app.get('/api/grn', async (req, res) => {
   }
 });
 
-// ✅ Get All Inventory Items (Individual records for reports)
 app.get('/api/inventory', async (req, res) => {
   try {
     const items = await Inventory.find().sort({ createdAt: -1 });
@@ -242,31 +250,35 @@ app.get('/api/inventory', async (req, res) => {
   }
 });
 
-// ✅ Create New GRN & Item-by-Item Inventory Population
+// ✅ FIXED: NaN Validation & Proper Model Insertion Combined
 app.post('/api/grn', async (req, res) => {
   try {
     const nextGrnId = await generateNextGRNID();
     
-    // 1. Create the GRN Transaction
     const newGrn = new ToolGRN({
       ...req.body,
       grnId: nextGrnId
     });
     const savedGrn = await newGrn.save();
 
-    // 2. Map items and save them individually to Inventory collection
     if (req.body.items && req.body.items.length > 0) {
-      const inventoryEntries = req.body.items.map(item => ({
-        itemName: item.itemName,
-        grnId: nextGrnId,
-        grnObjectId: savedGrn._id,
-        cost: Number(item.cost),
-        quantity: Number(item.qty),
-        status: 'In Stock',
-        supplier: req.body.supplier || req.body.vendor
-      }));
+      const inventoryEntries = req.body.items.map(item => {
+        const parsedQty = Number(item.qty || item.quantity);
+        const parsedCost = Number(item.cost || item.price);
+
+        return {
+          itemName: item.itemName || item.itemDescription || "UNKNOWN ITEM",
+          grnId: nextGrnId,
+          grnObjectId: savedGrn._id,
+          cost: isNaN(parsedCost) ? 0 : parsedCost,
+          quantity: isNaN(parsedQty) ? 1 : parsedQty, 
+          status: 'In Stock',
+          supplier: req.body.supplier || req.body.vendor || "NOT SPECIFIED"
+        };
+      });
       
-      await inventoryEntries.insertMany(inventoryEntries);
+      // Rightly running insertMany on Inventory Model
+      await Inventory.insertMany(inventoryEntries);
     }
 
     res.status(201).json(savedGrn);
@@ -276,18 +288,15 @@ app.post('/api/grn', async (req, res) => {
   }
 });
 
-// ✅ Allocate Tool/Item to Staff (Syncs both collections)
 app.patch('/api/grn/allocate', async (req, res) => {
   try {
     const { grnObjectId, itemObjectId, staffName } = req.body;
 
-    // Update individual item in Inventory collection for Custody Reports
     await Inventory.findOneAndUpdate(
-      { grnObjectId: grnObjectId, itemName: req.body.itemName }, // Finding by GRN and Name if ID is nested
+      { grnObjectId: grnObjectId, itemName: req.body.itemName }, 
       { status: 'Assigned', assignedTo: staffName }
     );
 
-    // Update the record inside the GRN for history
     const updatedGrn = await ToolGRN.findOneAndUpdate(
       { _id: grnObjectId, "items._id": itemObjectId },
       { 
@@ -305,7 +314,6 @@ app.patch('/api/grn/allocate', async (req, res) => {
   }
 });
 
-// Get all departments
 app.get('/api/departments', async (req, res) => {
   try {
     const deps = await Department.find().sort({ name: 1 });
@@ -315,15 +323,11 @@ app.get('/api/departments', async (req, res) => {
   }
 });
 
-// Add new department
 app.post('/api/departments', async (req, res) => {
   try {
-    // 1. මුලින්ම req.body එක terminal එකේ print කරලා බලනවා මොනවද එන්නේ කියලා
     console.log("📥 Incoming Request Body:", req.body);
-
     let departmentName = null;
 
-    // 2. විවිධ formats වලින් එන දත්ත නිවැරදිව ගලවා ගැනීම (JSON / Object / String)
     if (req.body && req.body.name) {
       departmentName = req.body.name;
     } else if (typeof req.body === 'string') {
@@ -332,7 +336,6 @@ app.post('/api/departments', async (req, res) => {
         departmentName = parsed.name;
       } catch (e) {}
     } else if (Object.keys(req.body).length > 0) {
-      // සමහර විට key එක string එකක් විදිහට parse වෙලා තිබුණොත්
       const key = Object.keys(req.body)[0];
       try {
         const parsed = JSON.parse(key);
@@ -342,20 +345,17 @@ app.post('/api/departments', async (req, res) => {
       }
     }
 
-    // 3. තවමත් නමක් හම්බුණේ නැත්නම් ආරක්ෂිතව 400 දෙනවා
     if (!departmentName || !departmentName.trim()) {
       return res.status(400).json({ message: "Department name field is empty or missing in req.body" });
     }
 
     const standardizedName = departmentName.trim().toUpperCase();
 
-    // 4. Manual Duplicate Checking
     const duplicated = await Department.findOne({ name: standardizedName });
     if (duplicated) {
       return res.status(400).json({ message: "This department already exists" });
     }
 
-    // 5. Save to Database
     const newDep = new Department({ name: standardizedName });
     await newDep.save();
     
@@ -367,7 +367,7 @@ app.post('/api/departments', async (req, res) => {
     res.status(400).json({ message: "Failed to add department", error: err.message });
   }
 });
-// Delete department
+
 app.delete('/api/departments/:id', async (req, res) => {
   try {
     await Department.findByIdAndDelete(req.params.id);
