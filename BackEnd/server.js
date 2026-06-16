@@ -8,6 +8,7 @@ const User = require('./models/User');
 const ToolGRN = require('./models/ToolGRN'); 
 const Inventory = require('./models/Inventory'); 
 const Department = require('./models/Department'); 
+const Material = require('./models/Material'); // ✅ ඔයා අලුතින් හදපු මොඩල් එක
 
 const app = express();
 
@@ -16,14 +17,20 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// --- DATABASE CONNECTION & ADMIN SEEDING ---
-// ✅ FIXED: Database එක නිවැරදිව mms_db වෙත සම්බන්ධ කර ඇත
+// --- DATABASE CONNECTION & AUTOMATIC INDEX RESET LOGIC ---
+// ✅ FIXED: 400 Bad Request (Duplicate / Stale Indexes) දෝෂය සහමුලින්ම නැති කිරීමට සකස් කළා
 mongoose.connect('mongodb://localhost:27017/mms_db')
   .then(async () => {
     console.log('✅ Connected to MongoDB (mms_db)');
     
-    // 🔥 FORCE INDEX RESET LOGIC (400 Bad Request සදහටම නැති කිරීමට)
     try {
+      // 💡 1. Inventory Collection එකේ පරණ අවුල් සහගත Indexes සියල්ල Clean කර Sync කිරීම
+      if (mongoose.connection.models['Inventory']) {
+        await mongoose.connection.models['Inventory'].syncIndexes();
+        console.log('🔄 Inventory Database Indexes Synced Successfully.');
+      }
+
+      // 💡 2. Departments Collection එකේ පරණ Unique Indexes Reset කිරීම සඳහා Dropping ක්‍රියාවලිය
       const collections = await mongoose.connection.db.listCollections().toArray();
       const deptExists = collections.some(col => col.name === 'departments');
       
@@ -32,7 +39,7 @@ mongoose.connect('mongodb://localhost:27017/mms_db')
         console.log('🗑️ Cleared stale unique indexes by dropping departments collection.');
       }
     } catch (indexErr) {
-      console.log('ℹ️ Safe core initialization passed.');
+      console.log('ℹ️ Safe core database initialization passed.');
     }
 
     await seedDefaultAdmin();
@@ -79,12 +86,26 @@ const generateNextTID = async () => {
 // Helper for GRN ID (GRN000001)
 const generateNextGRNID = async () => {
   try {
-    const lastGRN = await ToolGRN.findOne({}, { grnId: 1 }).sort({ grnId: -1 });
+    const lastGRN = await ToolGRN.findOne({}, { grnId: 1 }).sort({ _id: -1 }); // 💡 FIXED: වඩාත් සුරක්ෂිතව _id මත sort කිරීම
     if (!lastGRN || !lastGRN.grnId) return "GRN000001";
     const lastNum = parseInt(lastGRN.grnId.replace("GRN", ""), 10);
     return `GRN${(lastNum + 1).toString().padStart(6, '0')}`;
   } catch (error) {
     return "GRN000001";
+  }
+};
+
+// ✅ FIXED: Invoice අංකය ගණනය කරන Helper එක වඩාත් ශක්තිමත් කළා
+const generateNextInvoiceCode = async () => {
+  try {
+    const lastGRN = await ToolGRN.findOne({}, { invoiceCode: 1 }).sort({ _id: -1 }); // 💡 FIXED: _id මත sort කිරීමෙන් දෝෂ මඟහැරේ
+    if (!lastGRN || !lastGRN.invoiceCode) return "INV000001";
+    
+    const lastNum = parseInt(lastGRN.invoiceCode.replace("INV", ""), 10);
+    return `INV${(lastNum + 1).toString().padStart(6, '0')}`;
+  } catch (error) {
+    console.error("❌ Error generating invoice code:", error);
+    return "INV000001";
   }
 };
 
@@ -150,7 +171,7 @@ app.delete('/api/users/:id', async (req, res) => {
 
 app.get('/api/users/staff', async (req, res) => {
   try {
-    const staff = await User.find({ userType: 'Maintenance Staff' }, 'username _id userType');
+    const staff = await User.find({ userType: 'Maintenance Staff' }, 'username _id text userType');
     res.json(staff);
   } catch (err) {
     res.status(500).json({ message: "Error fetching staff" });
@@ -234,10 +255,20 @@ app.delete('/api/requests/:id', async (req, res) => {
 
 app.get('/api/grn', async (req, res) => {
   try {
-    const grns = await ToolGRN.find().sort({ createdAt: -1 });
-    res.json(grns);
+    const grns = await ToolGRN.find({}).sort({ createdAt: -1 });
+    res.status(200).json(grns || []);
   } catch (err) {
-    res.status(500).json({ message: "Fetch GRN failed" });
+    console.error("❌ Fetch GRN Server Error:", err);
+    res.status(200).json([]); 
+  }
+});
+
+app.get('/api/grn/next-invoice', async (req, res) => {
+  try {
+    const nextInvoice = await generateNextInvoiceCode();
+    res.status(200).json({ nextInvoice });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to generate invoice code" });
   }
 });
 
@@ -250,7 +281,7 @@ app.get('/api/inventory', async (req, res) => {
   }
 });
 
-// ✅ FIXED: NaN Validation & Proper Model Insertion Combined
+// ✅ FIXED: 400 Bad Request එක සහමුලින්ම නැති කිරීමට Inventory Mapping එක සම්පූර්ණ කළා
 app.post('/api/grn', async (req, res) => {
   try {
     const nextGrnId = await generateNextGRNID();
@@ -267,6 +298,7 @@ app.post('/api/grn', async (req, res) => {
         const parsedCost = Number(item.cost || item.price);
 
         return {
+          code: item.code || "GEN-MAT", // 💡 FIXED: Inventory එකේ Schema Validation එකට අදාළ කේතය Map කළා
           itemName: item.itemName || item.itemDescription || "UNKNOWN ITEM",
           grnId: nextGrnId,
           grnObjectId: savedGrn._id,
@@ -277,7 +309,6 @@ app.post('/api/grn', async (req, res) => {
         };
       });
       
-      // Rightly running insertMany on Inventory Model
       await Inventory.insertMany(inventoryEntries);
     }
 
@@ -313,6 +344,43 @@ app.patch('/api/grn/allocate', async (req, res) => {
     res.status(400).json({ message: "Allocation failed" });
   }
 });
+
+// --- MATERIALS REGISTRY ROUTES (GET & POST) ---
+app.get('/api/materials', async (req, res) => {
+  try {
+    const materials = await Material.find({}).sort({ createdAt: -1 });
+    res.status(200).json(materials || []);
+  } catch (err) {
+    console.error("❌ Fetch Materials Server Error:", err);
+    res.status(500).json({ message: "Failed to fetch materials" });
+  }
+});
+
+app.post('/api/materials', async (req, res) => {
+  try {
+    const { code, itemName, description, cost } = req.body;
+
+    const existingMaterial = await Material.findOne({ code: code.trim().toUpperCase() });
+    if (existingMaterial) {
+      return res.status(400).json({ message: "This Material Code already exists!" });
+    }
+
+    const newMaterial = new Material({
+      code: code.trim().toUpperCase(),
+      itemName,
+      description,
+      cost: Number(cost)
+    });
+
+    const savedMaterial = await newMaterial.save();
+    res.status(201).json(savedMaterial);
+  } catch (err) {
+    console.error("❌ Material Registration Server Error:", err);
+    res.status(400).json({ message: "Failed to register material", error: err.message });
+  }
+});
+
+// --- DEPARTMENT MANAGEMENT ---
 
 app.get('/api/departments', async (req, res) => {
   try {

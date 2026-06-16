@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Search, Bell } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
-import axios from 'axios';
+import axios from 'axios'; // (නැතහොත් axios)
 
 // API Service & Context
 import { AppProvider, useApp } from './context/AppContext';
@@ -21,14 +21,15 @@ import InventoryManager from './views/InventoryManager';
 import ToolAllocation from './views/ToolAllocation';
 import GRNPage from './views/GRNPage';
 import InventoryReport from './views/InventoryReport';
-import SettingsView from './views/SettingsView'; // ✅ New Import for Department Management
+import SettingsView from './views/SettingsView'; 
+import MaterialsRegistry from './views/MaterialsRegistry'; // ✅ ADDED: Materials Registry පිටුව Import කිරීම
 
 const MainAppContent = () => {
   const { user, logout } = useApp();
   const [requests, setRequests] = useState([]);
   const [grns, setGrns] = useState([]); 
   const [staffList, setStaffList] = useState([]); 
-  const [departments, setDepartments] = useState([]); // ✅ State for Dynamic Departments
+  const [departments, setDepartments] = useState([]); 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const systemColor = "#A47148";
 
@@ -48,14 +49,14 @@ const MainAppContent = () => {
     if (!user || user.role !== 'admin') return;
     try {
       const [grnRes, staffRes, depRes] = await Promise.all([
-        axios.get('http://localhost:5000/api/grn'),
-        axios.get('http://localhost:5000/api/users/staff'),
-        axios.get('http://localhost:5000/api/departments') // ✅ Fetch Automated Departments
+        axios.get('http://192.168.1.19:5000/api/grn'),
+        axios.get('http://192.168.1.19:5000/api/users/staff'),
+        axios.get('http://192.168.1.19:5000/api/departments') 
       ]);
       
       setGrns(grnRes.data || []);
       setStaffList(staffRes.data || []);
-      setDepartments(depRes.data || []); // ✅ Update Department State
+      setDepartments(depRes.data || []); 
     } catch (err) {
       console.error("System Data Fetch Error:", err);
     }
@@ -147,6 +148,12 @@ const MainAppContent = () => {
               element={<InventoryManager grns={grns} onRefresh={loadSystemData} />} 
             />
 
+            {/* ✅ NEW ROUTE: Materials Registry පිටුවට අදාළ ලිපිනය */}
+            <Route 
+              path="/materials" 
+              element={<MaterialsRegistry />} 
+            />
+
             <Route 
               path="/allocation" 
               element={
@@ -165,7 +172,6 @@ const MainAppContent = () => {
 
             <Route path="/users" element={<UserManagement />} />
 
-            {/* ✅ NEW ROUTE: System Settings */}
             <Route 
               path="/settings" 
               element={<SettingsView onRefresh={loadSystemData} />} 
@@ -181,7 +187,7 @@ const MainAppContent = () => {
         isOpen={isFormOpen} 
         onClose={() => setIsFormOpen(false)} 
         onRefresh={loadData}
-        departments={departments} // ✅ Automated Departments passed to dropdown
+        departments={departments} 
       />
     </div>
   );
