@@ -7,11 +7,12 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
   const [selection, setSelection] = useState({ 
     grnObjectId: '', 
     itemObjectId: '', 
+    staffId: '',     // ✅ ADDED: Staff User ගේ ID එක තබා ගැනීමට
     staffName: '' 
   });
   const [loading, setLoading] = useState(false);
 
-  // ✅ NEW REGEX FILTER: Handles the extra spaces shown in your DB image
+  // REGEX FILTER: Handles the extra spaces shown in your DB image
   const maintenanceStaff = Array.isArray(staffList) 
     ? staffList.filter(user => {
         const type = user.userType || "";
@@ -21,24 +22,36 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
     : [];
 
   const handleAllocate = async () => {
-    if (!selection.itemObjectId || !selection.staffName) {
+    // 💡 FIXED: දැන් Staff Name එක වගේම Staff ID එකත් තෝරාගෙන තිබීම අනිවාර්යයි
+    if (!selection.itemObjectId || !selection.staffName || !selection.staffId) {
       return toast.error("Please select both an item and a staff member");
     }
 
     setLoading(true);
     const t = toast.loading('Processing allocation...');
 
+    // ඩේටාබේස් එකට අයිතමයේ නම (itemName) සොයා ගැනීමට පොදු ලිස්ට් එකෙන් පෙරා ගැනීම
+    let selectedItemName = "";
+    inventoryItems?.forEach(grn => {
+      const found = grn.items?.find(i => i._id === selection.itemObjectId);
+      if (found) selectedItemName = found.itemName;
+    });
+
     try {
-      await axios.patch('http://localhost:5000/api/grn/allocate', {
+      // ✅ FIXED: Backend එකේ අලුත් ලොජික් එකට ගැලපෙන්න staffId සහ itemName දෙකම Payload එකට එකතු කළා
+      await axios.patch('http://192.168.1.19:5000/api/grn/allocate', {
         grnObjectId: selection.grnObjectId,
         itemObjectId: selection.itemObjectId,
-        staffName: selection.staffName
+        staffId: selection.staffId,
+        staffName: selection.staffName,
+        itemName: selectedItemName
       });
 
       toast.success(`Allocated to ${selection.staffName}`, { id: t });
-      setSelection({ grnObjectId: '', itemObjectId: '', staffName: '' });
+      setSelection({ grnObjectId: '', itemObjectId: '', staffId: '', staffName: '' });
       if (onRefresh) onRefresh();
     } catch (err) {
+      console.error("❌ Allocation Frontend Error:", err);
       toast.error("Allocation failed", { id: t });
     } finally {
       setLoading(false);
@@ -74,11 +87,12 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
         )}
 
         <div className="space-y-8">
+          {/* Item Selection Dropdown */}
           <div className="space-y-2">
             <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest ml-1">Select Tool / Item</label>
             <select 
               className="w-full px-5 py-4 bg-slate-50 border border-slate-200 hover:border-slate-400 rounded-2xl text-sm font-medium outline-none focus:ring-1 focus:ring-[#A47148] focus:border-[#A47148] transition-all"
-              value={`${selection.grnObjectId}|${selection.itemObjectId}`}
+              value={selection.itemObjectId ? `${selection.grnObjectId}|${selection.itemObjectId}` : "|"}
               onChange={(e) => {
                 const parts = e.target.value.split('|');
                 if(parts.length === 2) {
@@ -90,23 +104,36 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
               {inventoryItems?.map((grn) => (
                 grn.items?.filter(i => i.status === 'In Stock').map(item => (
                   <option key={item._id} value={`${grn._id}|${item._id}`}>
-                    {item.itemName} ({item.quantity}) - {grn.grnId}
+                    {item.itemName} ({item.quantity}) - {grn.grnId || grn.invoiceCode}
                   </option>
                 ))
               ))}
             </select>
           </div>
 
+          {/* Staff Selection Dropdown */}
           <div className="space-y-2">
             <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest ml-1">Assign To Staff</label>
             <select 
               className="w-full px-5 py-4 bg-slate-50 border border-slate-200 hover:border-slate-400 rounded-2xl text-sm font-medium outline-none focus:ring-1 focus:ring-[#A47148] focus:border-[#A47148] transition-all"
-              value={selection.staffName}
-              onChange={(e) => setSelection({...selection, staffName: e.target.value})}
+              // 💡 FIXED VALUE MAPPING
+              value={selection.staffId ? `${selection.staffId}|${selection.staffName}` : ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (!val) {
+                  setSelection({...selection, staffId: '', staffName: ''});
+                  return;
+                }
+                const parts = val.split('|');
+                if (parts.length === 2) {
+                  setSelection({...selection, staffId: parts[0], staffName: parts[1]});
+                }
+              }}
             >
               <option value="">Select Maintenance Member</option>
               {maintenanceStaff.map(staff => (
-                <option key={staff._id} value={staff.username}>
+                // 💡 FIXED: Dropdown එකෙන් ID එකයි Username එකයි දෙකම එකවර ලබා ගැනීම
+                <option key={staff._id} value={`${staff._id}|${staff.username}`}>
                   {staff.username}
                 </option>
               ))}

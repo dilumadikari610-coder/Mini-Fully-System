@@ -8,7 +8,8 @@ const User = require('./models/User');
 const ToolGRN = require('./models/ToolGRN'); 
 const Inventory = require('./models/Inventory'); 
 const Department = require('./models/Department'); 
-const Material = require('./models/Material'); // ✅ ඔයා අලුතින් හදපු මොඩල් එක
+const Material = require('./models/Material');
+const StaffInventory = require('./models/StaffInventory'); // ✅ ඔයා දැනටමත් Import කර ඇති මොඩල් එක
 
 const app = express();
 
@@ -18,19 +19,21 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // --- DATABASE CONNECTION & AUTOMATIC INDEX RESET LOGIC ---
-// ✅ FIXED: 400 Bad Request (Duplicate / Stale Indexes) දෝෂය සහමුලින්ම නැති කිරීමට සකස් කළා
 mongoose.connect('mongodb://localhost:27017/mms_db')
   .then(async () => {
     console.log('✅ Connected to MongoDB (mms_db)');
     
     try {
-      // 💡 1. Inventory Collection එකේ පරණ අවුල් සහගත Indexes සියල්ල Clean කර Sync කිරීම
       if (mongoose.connection.models['Inventory']) {
         await mongoose.connection.models['Inventory'].syncIndexes();
         console.log('🔄 Inventory Database Indexes Synced Successfully.');
       }
 
-      // 💡 2. Departments Collection එකේ පරණ Unique Indexes Reset කිරීම සඳහා Dropping ක්‍රියාවලිය
+      if (mongoose.connection.models['StaffInventory']) {
+        await mongoose.connection.models['StaffInventory'].syncIndexes();
+        console.log('🔄 StaffInventory Database Indexes Synced Successfully.');
+      }
+
       const collections = await mongoose.connection.db.listCollections().toArray();
       const deptExists = collections.some(col => col.name === 'departments');
       
@@ -46,7 +49,7 @@ mongoose.connect('mongodb://localhost:27017/mms_db')
   })
   .catch(err => console.error('❌ Connection error:', err));
 
-// ✅ AUTO-SEED LOGIC FOR NEW DATABASE
+// AUTO-SEED LOGIC FOR NEW DATABASE
 const seedDefaultAdmin = async () => {
   try {
     const adminExists = await User.findOne({ username: 'admin' });
@@ -86,7 +89,7 @@ const generateNextTID = async () => {
 // Helper for GRN ID (GRN000001)
 const generateNextGRNID = async () => {
   try {
-    const lastGRN = await ToolGRN.findOne({}, { grnId: 1 }).sort({ _id: -1 }); // 💡 FIXED: වඩාත් සුරක්ෂිතව _id මත sort කිරීම
+    const lastGRN = await ToolGRN.findOne({}, { grnId: 1 }).sort({ _id: -1 }); 
     if (!lastGRN || !lastGRN.grnId) return "GRN000001";
     const lastNum = parseInt(lastGRN.grnId.replace("GRN", ""), 10);
     return `GRN${(lastNum + 1).toString().padStart(6, '0')}`;
@@ -95,10 +98,10 @@ const generateNextGRNID = async () => {
   }
 };
 
-// ✅ FIXED: Invoice අංකය ගණනය කරන Helper එක වඩාත් ශක්තිමත් කළා
+// Invoice අංකය ගණනය කරන Helper එක
 const generateNextInvoiceCode = async () => {
   try {
-    const lastGRN = await ToolGRN.findOne({}, { invoiceCode: 1 }).sort({ _id: -1 }); // 💡 FIXED: _id මත sort කිරීමෙන් දෝෂ මඟහැරේ
+    const lastGRN = await ToolGRN.findOne({}, { invoiceCode: 1 }).sort({ _id: -1 }); 
     if (!lastGRN || !lastGRN.invoiceCode) return "INV000001";
     
     const lastNum = parseInt(lastGRN.invoiceCode.replace("INV", ""), 10);
@@ -281,7 +284,6 @@ app.get('/api/inventory', async (req, res) => {
   }
 });
 
-// ✅ FIXED: 400 Bad Request එක සහමුලින්ම නැති කිරීමට Inventory Mapping එක සම්පූර්ණ කළා
 app.post('/api/grn', async (req, res) => {
   try {
     const nextGrnId = await generateNextGRNID();
@@ -298,7 +300,7 @@ app.post('/api/grn', async (req, res) => {
         const parsedCost = Number(item.cost || item.price);
 
         return {
-          code: item.code || "GEN-MAT", // 💡 FIXED: Inventory එකේ Schema Validation එකට අදාළ කේතය Map කළා
+          code: item.code || "GEN-MAT", 
           itemName: item.itemName || item.itemDescription || "UNKNOWN ITEM",
           grnId: nextGrnId,
           grnObjectId: savedGrn._id,
@@ -319,15 +321,34 @@ app.post('/api/grn', async (req, res) => {
   }
 });
 
+// ✅ UPDATED: පොදු ගබඩාවෙන් බඩුවක් දෙන ගමන්ම, අදාළ Staff User ගේ පුද්ගලික Stock එකට (StaffInventory) දත්ත එකතු වන පරිදි සකස් කළා.
 app.patch('/api/grn/allocate', async (req, res) => {
   try {
-    const { grnObjectId, itemObjectId, staffName } = req.body;
+    const { grnObjectId, itemObjectId, staffName, staffId, itemName } = req.body;
 
-    await Inventory.findOneAndUpdate(
-      { grnObjectId: grnObjectId, itemName: req.body.itemName }, 
-      { status: 'Assigned', assignedTo: staffName }
+    const targetItemName = itemName || req.body.itemName;
+
+    // 1. පොදු Inventory එකේ status එක 'Assigned' කිරීම
+    const inventoryItem = await Inventory.findOneAndUpdate(
+      { grnObjectId: grnObjectId, itemName: targetItemName }, 
+      { status: 'Assigned', assignedTo: staffName },
+      { new: true }
     );
 
+    // 2. 💡 NEW UNIQUE SCENARIO: එකම Collection එකක් ඇතුළේ අදාළ Staff User ID එක යටතේ දත්ත වෙන් කර තැබීම
+    if (inventoryItem && staffId) {
+      await StaffInventory.findOneAndUpdate(
+        { userId: staffId, code: inventoryItem.code || "GEN-MAT" },
+        {
+          $set: { staffName: staffName, itemName: inventoryItem.itemName },
+          $inc: { quantity: inventoryItem.quantity || 1 }, 
+          $setOnInsert: { grnId: inventoryItem.grnId || "N/A", allocatedDate: new Date() }
+        },
+        { upsert: true, new: true }
+      );
+    }
+
+    // 3. ToolGRN එක ඇතුළත දත්ත යාවත්කාලීන කිරීම
     const updatedGrn = await ToolGRN.findOneAndUpdate(
       { _id: grnObjectId, "items._id": itemObjectId },
       { 
@@ -341,7 +362,18 @@ app.patch('/api/grn/allocate', async (req, res) => {
 
     res.json(updatedGrn);
   } catch (err) {
+    console.error("❌ Allocation Route Error:", err);
     res.status(400).json({ message: "Allocation failed" });
+  }
+});
+
+// ✅ ADDED: Staff User කෙනෙකුට තමන් සතු පුද්ගලික Stock ලැයිස්තුව පමණක් පෙරලා බැලීමට හැකි නවතම API End-point එක
+app.get('/api/staff-inventory/:staffId', async (req, res) => {
+  try {
+    const staffStock = await StaffInventory.find({ userId: req.params.staffId }).sort({ updatedAt: -1 });
+    res.status(200).json(staffStock || []);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch staff personal inventory" });
   }
 });
 
