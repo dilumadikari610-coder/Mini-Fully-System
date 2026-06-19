@@ -10,6 +10,7 @@ const Inventory = require('./models/Inventory');
 const Department = require('./models/Department'); 
 const Material = require('./models/Material');
 const StaffInventory = require('./models/StaffInventory'); // ✅ ඔයා දැනටමත් Import කර ඇති මොඩල් එක
+const Notification = require('./models/Notification'); // ✅ ADDED: Notification මොඩල් එක සම්බන්ධ කිරීම
 
 const app = express();
 
@@ -209,6 +210,7 @@ app.post('/api/requests', async (req, res) => {
   }
 });
 
+// 💡 1. Admin විසින් Maintenance Staff කෙනෙක්ව Assign කරන Route එක (With Notification)
 app.patch('/api/requests/assign/:id', async (req, res) => {
   try {
     const { staffId, staffName } = req.body;
@@ -222,26 +224,79 @@ app.patch('/api/requests/assign/:id', async (req, res) => {
       },
       { new: true }
     );
+
+    // 🔔 Staff සාමාජිකයාට අලුත් Job එකක් ලැබුණු බවට Notification එකක් සාදයි
+    const newNotif = new Notification({
+      userId: staffId,
+      message: `You have been assigned to a new Maintenance Job: ${updated.tid} - ${updated.description || 'No Description'}`,
+      type: 'ASSIGNED',
+      requestId: updated._id
+    });
+    await newNotif.save();
+
     res.json(updated);
   } catch (err) {
     res.status(400).json({ message: "Assignment failed" });
   }
 });
 
-app.patch('/api/requests/status/:id', async (req, res) => {
+// 💡 2. NEW END-POINT: Staff සාමාජිකයා තමන්ගේ වැඩේ ඉවර කරලා Complete කළ විට (Status -> Under Review + Notification to Admin)
+app.patch('/api/requests/complete/:id', async (req, res) => {
   try {
-    const { status } = req.body;
     const updated = await Request.findByIdAndUpdate(
-      req.params.id, 
-      { 
-        status: status,
-        updatedAt: new Date()
-      },
+      req.params.id,
+      { status: 'Under Review', updatedAt: new Date() },
       { new: true }
     );
+
+    // පද්ධතියේ සිටින Admin ව සොයා ගනී
+    const adminUser = await User.findOne({ userType: 'Admin' });
+    if (adminUser) {
+      const newNotif = new Notification({
+        userId: adminUser._id,
+        message: `Maintenance Job ${updated.tid} has been completed by ${updated.assignedTo}. Needs your Review & Approval.`,
+        type: 'COMPLETED',
+        requestId: updated._id
+      });
+      await newNotif.save();
+    }
+
     res.json(updated);
   } catch (err) {
-    res.status(400).json({ message: "Status update failed" });
+    res.status(400).json({ message: "Failed to mark as complete", error: err.message });
+  }
+});
+
+// 💡 3. NEW END-POINT: Admin විසින් එම Job එක Approve හෝ Reject කරන අවස්ථාව (Status මාරු වීම + Staff Notification)
+app.patch('/api/requests/review/:id', async (req, res) => {
+  try {
+    const { action } = req.body; // 'APPROVE' හෝ 'REJECT'
+    const finalStatus = action === 'APPROVE' ? 'Approved' : 'Assigned'; // Reject කළොත් නැවත Assigned තත්ත්වයට පත් වේ
+
+    const updated = await Request.findByIdAndUpdate(
+      req.params.id,
+      { status: finalStatus, updatedAt: new Date() },
+      { new: true }
+    );
+
+    // අදාළ වැඩේ භාරව සිටි Staff සාමාජිකයාට ප්‍රතිඵලය දැනුම් දීම
+    if (updated.assignedToId) {
+      const msg = action === 'APPROVE' 
+        ? `Congratulations! Admin APPROVED your work on Job: ${updated.tid}.` 
+        : `Attention Required! Admin REJECTED your work on Job: ${updated.tid}. Please redo and complete it properly.`;
+
+      const newNotif = new Notification({
+        userId: updated.assignedToId,
+        message: msg,
+        type: action === 'APPROVE' ? 'APPROVED' : 'REJECTED',
+        requestId: updated._id
+      });
+      await newNotif.save();
+    }
+
+    res.json(updated);
+  } catch (err) {
+    res.status(400).json({ message: "Review process failed", error: err.message });
   }
 });
 
@@ -251,6 +306,25 @@ app.delete('/api/requests/:id', async (req, res) => {
     res.json({ message: "Job deleted successfully" });
   } catch (err) {
     res.status(500).json({ message: "Delete failed" });
+  }
+});
+
+// --- 🔔 GENERAL NOTIFICATION ROUTES ---
+app.get('/api/notifications/:userId', async (req, res) => {
+  try {
+    const notifs = await Notification.find({ userId: req.params.userId }).sort({ createdAt: -1 });
+    res.json(notifs || []);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch notifications" });
+  }
+});
+
+app.patch('/api/notifications/read/:id', async (req, res) => {
+  try {
+    await Notification.findByIdAndUpdate(req.params.id, { isRead: true });
+    res.json({ message: "Notification marked as read" });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to update notification status" });
   }
 });
 
@@ -321,7 +395,7 @@ app.post('/api/grn', async (req, res) => {
   }
 });
 
-// ✅ UPDATED: පොදු ගබඩාවෙන් බඩුවක් දෙන ගමන්ම, අදාළ Staff User ගේ පුද්ගලික Stock එකට (StaffInventory) දත්ත එකතු වන පරිදි සකස් කළා.
+// ✅ පොදු ගබඩාවෙන් බඩුවක් දෙන ගමන්ම, අදාළ Staff User ගේ පුද්ගලික Stock එකට (StaffInventory) දත්ත එකතු වන පරිදි සකස් කළා.
 app.patch('/api/grn/allocate', async (req, res) => {
   try {
     const { grnObjectId, itemObjectId, staffName, staffId, itemName } = req.body;
@@ -367,7 +441,6 @@ app.patch('/api/grn/allocate', async (req, res) => {
   }
 });
 
-// ✅ ADDED: Staff User කෙනෙකුට තමන් සතු පුද්ගලික Stock ලැයිස්තුව පමණක් පෙරලා බැලීමට හැකි නවතම API End-point එක
 app.get('/api/staff-inventory/:staffId', async (req, res) => {
   try {
     const staffStock = await StaffInventory.find({ userId: req.params.staffId }).sort({ updatedAt: -1 });

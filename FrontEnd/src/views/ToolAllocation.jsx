@@ -132,7 +132,7 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
             >
               <option value="">Select Maintenance Member</option>
               {maintenanceStaff.map(staff => (
-                // 💡 FIXED: Dropdown එකෙන් ID එකයි Username එකයි දෙකම එකවර ලබා ගැනීම
+                
                 <option key={staff._id} value={`${staff._id}|${staff.username}`}>
                   {staff.username}
                 </option>
