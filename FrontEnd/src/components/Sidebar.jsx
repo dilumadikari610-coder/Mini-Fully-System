@@ -1,5 +1,5 @@
-import React from 'react';
-import { NavLink } from 'react-router-dom';
+import React, { useState } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   Wrench, 
@@ -12,13 +12,18 @@ import {
   UserCheck,
   FilePlus,
   FileText,
-  Boxes 
+  Boxes,
+  ChevronDown
 } from 'lucide-react';
 
 const Sidebar = ({ user, logout, onAddNew }) => {
   const systemColor = "#A47148";
+  const location = useLocation();
 
-  // Configuration for Navigation Links
+  // 💡 STATE: Settings Dropdown එක Open/Close ද කියා තීරණය කිරීමට
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // --- MAIN NAVIGATION LINKS CONFIGURATION ---
   const navItems = [
     { id: 'dashboard', name: 'Dashboard', icon: LayoutDashboard },
     { id: 'maintenance', name: 'Maintenance', icon: ClipboardList },
@@ -37,12 +42,6 @@ const Sidebar = ({ user, logout, onAddNew }) => {
       adminOnly: true 
     },
     { 
-      id: 'materials', 
-      name: 'Materials Registry', 
-      icon: Boxes, 
-      adminOnly: true 
-    },
-    { 
       id: 'allocation', 
       name: 'Staff Allocation', 
       icon: UserCheck, 
@@ -54,34 +53,27 @@ const Sidebar = ({ user, logout, onAddNew }) => {
       icon: FileText, 
       adminOnly: true 
     },
-    
-    // --- SYSTEM SECTION ---
-    { 
-      id: 'users', 
-      name: 'User Management', 
-      icon: Users, 
-      adminOnly: true 
-    },
-    { 
-      id: 'settings', 
-      name: 'Settings', 
-      icon: Settings, 
-      adminOnly: true 
-    },
   ];
+
+  // 💡 482de7 FIXED: Settings Dropdown එක ඇතුළට යන Sub-links එකතුව
+  const settingsSubItems = [
+    { id: 'materials', name: 'Materials Registry', icon: Boxes },
+    { id: 'users', name: 'User Management', icon: Users },
+    { id: 'settings', name: 'Department', icon: Settings },
+  ];
+
+  // දැනට සක්‍රීය පිටුව Settings එක ඇතුළේ එකක්දැයි සෙවීම (Active Highlight එක සඳහා)
+  const isSubItemActive = settingsSubItems.some(sub => location.pathname === `/${sub.id}`);
 
   return (
     <>
-      {/* 💡 SOLUTION: පරණ කැත Scrollbar එක අයින් කරලා Premium look එකක් දෙන Custom CSS Style බ්ලොක් එක */}
       <style>{`
-        /* බ්‍රවුසර් එකේ default scrollbar එක sidebar එකෙන් අයින් කිරීම */
         .custom-sidebar-scroll::-webkit-scrollbar {
           width: 5px;
           height: 5px;
-          display: none; /* Default එකේදී හංගනවා */
+          display: none;
         }
 
-        /* Sidebar එක hover කරලා ලොකු වුණාම විතරක් සිහින් ලස්සන scrollbar එකක් පෙන්වීම */
         .group:hover .custom-sidebar-scroll::-webkit-scrollbar {
           display: block;
         }
@@ -116,7 +108,7 @@ const Sidebar = ({ user, logout, onAddNew }) => {
           </span>
         </div>
         
-        {/* 2. NAVIGATION ITEMS (💡 FIXED: මෙතැනට custom scroll class එක සහ overflow-y-auto එකතු කළා) */}
+        {/* 2. NAVIGATION ITEMS */}
         <nav className="flex-1 px-3 py-6 space-y-2 overflow-y-auto overflow-x-hidden custom-sidebar-scroll">
           
           {/* ADD NEW JOB ACTION BUTTON */}
@@ -132,6 +124,7 @@ const Sidebar = ({ user, logout, onAddNew }) => {
             </span>
           </button>
 
+          {/* Standard Navigation Rendering */}
           {navItems.map((item) => {
             if (item.adminOnly && user?.role !== 'admin') return null;
             
@@ -168,6 +161,71 @@ const Sidebar = ({ user, logout, onAddNew }) => {
               </NavLink>
             );
           })}
+
+          {/* ================================================== */}
+          {/* 💡 SOLUTIONS: COLLAPSIBLE DROPDOWN SYSTEM ACCORDION (Admin Only) */}
+          {/* ================================================== */}
+          {user?.role === 'admin' && (
+            <div className="space-y-1 block relative">
+              {/* Trigger Button */}
+              <button
+                onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+                className={`w-full flex items-center h-12 rounded-xl transition-all relative overflow-hidden outline-none ${
+                  isSubItemActive ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white'
+                }`}
+              >
+                <div className="w-[54px] min-w-[54px] flex items-center justify-center shrink-0">
+                  <Settings 
+                    size={20} 
+                    strokeWidth={isSubItemActive ? 2 : 1.5}
+                    className={`transition-all duration-300 ${isSubItemActive ? 'text-white' : 'text-white/60'}`}
+                  />
+                </div>
+                
+                <span className="font-medium text-[11px] tracking-wide ml-2 opacity-0 group-hover:opacity-100 transition-all duration-300 flex-1 text-left whitespace-nowrap">
+                  Settings Menu
+                </span>
+
+                {/* Dropdown Arrow */}
+                <div className="pr-4 opacity-0 group-hover:opacity-100 transition-all duration-300">
+                  <ChevronDown 
+                    size={14} 
+                    className={`transform transition-transform duration-200 ${isSettingsOpen ? 'rotate-180' : 'rotate-0'}`} 
+                  />
+                </div>
+              </button>
+
+              {/* Sub-items Grid Container (Smooth Slide Accordion) */}
+              <div 
+                className={`transition-all duration-300 ease-in-out overflow-hidden space-y-1 pl-4 ${
+                  isSettingsOpen ? 'max-h-48 opacity-100 mt-1' : 'max-h-0 opacity-0 pointer-events-none'
+                }`}
+              >
+                {settingsSubItems.map((sub) => (
+                  <NavLink
+                    key={sub.id}
+                    to={`/${sub.id}`}
+                    className={({ isActive }) => `
+                      w-full flex items-center h-10 rounded-lg transition-all relative overflow-hidden
+                      ${isActive ? 'bg-white/20 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white'}
+                    `}
+                  >
+                    {({ isActive }) => (
+                      <>
+                        <div className="w-10 min-w-10 flex items-center justify-center shrink-0">
+                          <sub.icon size={16} strokeWidth={isActive ? 2 : 1.5} />
+                        </div>
+                        <span className="font-medium text-[11px] tracking-wide ml-2 whitespace-nowrap transition-opacity duration-300">
+                          {sub.name}
+                        </span>
+                      </>
+                    )}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
+          )}
+
         </nav>
 
         {/* 3. LOGOUT FOOTER */}
