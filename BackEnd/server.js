@@ -9,8 +9,9 @@ const ToolGRN = require('./models/ToolGRN');
 const Inventory = require('./models/Inventory'); 
 const Department = require('./models/Department'); 
 const Material = require('./models/Material');
-const StaffInventory = require('./models/StaffInventory'); // ✅ ඔයා දැනටමත් Import කර ඇති මොඩල් එක
-const Notification = require('./models/Notification'); // ✅ ADDED: Notification මොඩල් එක සම්බන්ධ කිරීම
+const StaffInventory = require('./models/StaffInventory'); 
+const Notification = require('./models/Notification'); 
+const Supplier = require('./models/Supplier'); 
 
 const app = express();
 
@@ -87,29 +88,48 @@ const generateNextTID = async () => {
   }
 };
 
-// Helper for GRN ID (GRN000001)
+// Helper for GRN ID (GRN000001) - Fields දෙකෙන්ම උපරිම අංකය පරීක්ෂා කරයි
 const generateNextGRNID = async () => {
   try {
-    const lastGRN = await ToolGRN.findOne({}, { grnId: 1 }).sort({ _id: -1 }); 
-    if (!lastGRN || !lastGRN.grnId) return "GRN000001";
-    const lastNum = parseInt(lastGRN.grnId.replace("GRN", ""), 10);
+    const lastGRN = await ToolGRN.findOne({}, { grnId: 1, invoiceCode: 1 }).sort({ _id: -1 }); 
+    if (!lastGRN) return "GRN000001";
+    
+    const targetCode = lastGRN.grnId || lastGRN.invoiceCode || "GRN000000";
+    const lastNum = parseInt(targetCode.replace("GRN", "").replace("INV", ""), 10);
+    
+    if (isNaN(lastNum)) return "GRN000001";
     return `GRN${(lastNum + 1).toString().padStart(6, '0')}`;
   } catch (error) {
     return "GRN000001";
   }
 };
 
-// Invoice අංකය ගණනය කරන Helper එක
+// Invoice අංකය ගණනය කරන Helper එක - Fields දෙකෙන්ම උපරිම අංකය පරීක්ෂා කරයි
 const generateNextInvoiceCode = async () => {
   try {
-    const lastGRN = await ToolGRN.findOne({}, { invoiceCode: 1 }).sort({ _id: -1 }); 
-    if (!lastGRN || !lastGRN.invoiceCode) return "INV000001";
+    const lastGRN = await ToolGRN.findOne({}, { invoiceCode: 1, grnId: 1 }).sort({ _id: -1 }); 
+    if (!lastGRN) return "INV000001";
     
-    const lastNum = parseInt(lastGRN.invoiceCode.replace("INV", ""), 10);
+    const targetCode = lastGRN.invoiceCode || lastGRN.grnId || "INV000000";
+    const lastNum = parseInt(targetCode.replace("INV", "").replace("GRN", ""), 10);
+    
+    if (isNaN(lastNum)) return "INV000001";
     return `INV${(lastNum + 1).toString().padStart(6, '0')}`;
   } catch (error) {
     console.error("❌ Error generating invoice code:", error);
     return "INV000001";
+  }
+};
+
+// Helper for Supplier ID (SPL000001) - ස්වයංක්‍රීයව Supplier අංකය සාදයි
+const generateNextSupplierID = async () => {
+  try {
+    const lastSupplier = await Supplier.findOne({}, { supplierId: 1 }).sort({ _id: -1 });
+    if (!lastSupplier || !lastSupplier.supplierId) return "SPL000001";
+    const lastNum = parseInt(lastSupplier.supplierId.replace("SPL", ""), 10);
+    return `SPL${(lastNum + 1).toString().padStart(6, '0')}`;
+  } catch (error) {
+    return "SPL000001";
   }
 };
 
@@ -210,7 +230,7 @@ app.post('/api/requests', async (req, res) => {
   }
 });
 
-// 💡 1. Admin විසින් Maintenance Staff කෙනෙක්ව Assign කරන Route එක (With Notification)
+// // 💡 Admin විසින් Maintenance Staff කෙනෙක්ව Assign කරන Route එක (With Notification)
 app.patch('/api/requests/assign/:id', async (req, res) => {
   try {
     const { staffId, staffName } = req.body;
@@ -225,7 +245,6 @@ app.patch('/api/requests/assign/:id', async (req, res) => {
       { new: true }
     );
 
-    // 🔔 Staff සාමාජිකයාට අලුත් Job එකක් ලැබුණු බවට Notification එකක් සාදයි
     const newNotif = new Notification({
       userId: staffId,
       message: `You have been assigned to a new Maintenance Job: ${updated.tid} - ${updated.description || 'No Description'}`,
@@ -236,11 +255,11 @@ app.patch('/api/requests/assign/:id', async (req, res) => {
 
     res.json(updated);
   } catch (err) {
-    res.status(400).json({ message: "Assignment failed" });
+    res.status(400).json({ message: "Authorization assignment failed" });
   }
 });
 
-// 💡 2. NEW END-POINT: Staff සාමාජිකයා තමන්ගේ වැඩේ ඉවර කරලා Complete කළ විට (Status -> Under Review + Notification to Admin)
+// Staff සාමාජිකයා තමන්ගේ වැඩේ ඉවර කරලා Complete කළ විට
 app.patch('/api/requests/complete/:id', async (req, res) => {
   try {
     const updated = await Request.findByIdAndUpdate(
@@ -249,7 +268,6 @@ app.patch('/api/requests/complete/:id', async (req, res) => {
       { new: true }
     );
 
-    // පද්ධතියේ සිටින Admin ව සොයා ගනී
     const adminUser = await User.findOne({ userType: 'Admin' });
     if (adminUser) {
       const newNotif = new Notification({
@@ -267,11 +285,11 @@ app.patch('/api/requests/complete/:id', async (req, res) => {
   }
 });
 
-// 💡 3. NEW END-POINT: Admin විසින් එම Job එක Approve හෝ Reject කරන අවස්ථාව (Status මාරු වීම + Staff Notification)
+// Admin විසින් එම Job එක Approve හෝ Reject කරන අවස්ථාව
 app.patch('/api/requests/review/:id', async (req, res) => {
   try {
-    const { action } = req.body; // 'APPROVE' හෝ 'REJECT'
-    const finalStatus = action === 'APPROVE' ? 'Approved' : 'Assigned'; // Reject කළොත් නැවත Assigned තත්ත්වයට පත් වේ
+    const { action } = req.body; 
+    const finalStatus = action === 'APPROVE' ? 'Approved' : 'Assigned'; 
 
     const updated = await Request.findByIdAndUpdate(
       req.params.id,
@@ -279,7 +297,6 @@ app.patch('/api/requests/review/:id', async (req, res) => {
       { new: true }
     );
 
-    // අදාළ වැඩේ භාරව සිටි Staff සාමාජිකයාට ප්‍රතිඵලය දැනුම් දීම
     if (updated.assignedToId) {
       const msg = action === 'APPROVE' 
         ? `Congratulations! Admin APPROVED your work on Job: ${updated.tid}.` 
@@ -309,7 +326,6 @@ app.delete('/api/requests/:id', async (req, res) => {
   }
 });
 
-// --- 🔔 GENERAL NOTIFICATION ROUTES ---
 app.get('/api/notifications/:userId', async (req, res) => {
   try {
     const notifs = await Notification.find({ userId: req.params.userId }).sort({ createdAt: -1 });
@@ -360,11 +376,15 @@ app.get('/api/inventory', async (req, res) => {
 
 app.post('/api/grn', async (req, res) => {
   try {
-    const nextGrnId = await generateNextGRNID();
+    const incomingCode = req.body.invoiceCode || await generateNextInvoiceCode();
+    const finalGRNCode = incomingCode.replace("INV", "GRN"); 
+
+    console.log(`📥 Database Syncing New GRN Sequence: ${finalGRNCode}`);
     
     const newGrn = new ToolGRN({
       ...req.body,
-      grnId: nextGrnId
+      invoiceCode: finalGRNCode,
+      grnId: finalGRNCode
     });
     const savedGrn = await newGrn.save();
 
@@ -376,7 +396,7 @@ app.post('/api/grn', async (req, res) => {
         return {
           code: item.code || "GEN-MAT", 
           itemName: item.itemName || item.itemDescription || "UNKNOWN ITEM",
-          grnId: nextGrnId,
+          grnId: finalGRNCode,
           grnObjectId: savedGrn._id,
           cost: isNaN(parsedCost) ? 0 : parsedCost,
           quantity: isNaN(parsedQty) ? 1 : parsedQty, 
@@ -395,21 +415,17 @@ app.post('/api/grn', async (req, res) => {
   }
 });
 
-// ✅ පොදු ගබඩාවෙන් බඩුවක් දෙන ගමන්ම, අදාළ Staff User ගේ පුද්ගලික Stock එකට (StaffInventory) දත්ත එකතු වන පරිදි සකස් කළා.
 app.patch('/api/grn/allocate', async (req, res) => {
   try {
     const { grnObjectId, itemObjectId, staffName, staffId, itemName } = req.body;
-
     const targetItemName = itemName || req.body.itemName;
 
-    // 1. පොදු Inventory එකේ status එක 'Assigned' කිරීම
     const inventoryItem = await Inventory.findOneAndUpdate(
       { grnObjectId: grnObjectId, itemName: targetItemName }, 
       { status: 'Assigned', assignedTo: staffName },
       { new: true }
     );
 
-    // 2. 💡 NEW UNIQUE SCENARIO: එකම Collection එකක් ඇතුළේ අදාළ Staff User ID එක යටතේ දත්ත වෙන් කර තැබීම
     if (inventoryItem && staffId) {
       await StaffInventory.findOneAndUpdate(
         { userId: staffId, code: inventoryItem.code || "GEN-MAT" },
@@ -422,7 +438,6 @@ app.patch('/api/grn/allocate', async (req, res) => {
       );
     }
 
-    // 3. ToolGRN එක ඇතුළත දත්ත යාවත්කාලීන කිරීම
     const updatedGrn = await ToolGRN.findOneAndUpdate(
       { _id: grnObjectId, "items._id": itemObjectId },
       { 
@@ -482,6 +497,45 @@ app.post('/api/materials', async (req, res) => {
   } catch (err) {
     console.error("❌ Material Registration Server Error:", err);
     res.status(400).json({ message: "Failed to register material", error: err.message });
+  }
+});
+
+// --- SUPPLIER MANAGEMENT ROUTES ---
+app.get('/api/suppliers', async (req, res) => {
+  try {
+    const suppliers = await Supplier.find({}).sort({ createdAt: -1 });
+    res.status(200).json(suppliers || []);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch suppliers" });
+  }
+});
+
+app.post('/api/suppliers', async (req, res) => {
+  try {
+    const nextSplId = await generateNextSupplierID();
+    const { name, contactPerson, phone, address } = req.body;
+
+    const duplicate = await Supplier.findOne({ name: name.trim().toUpperCase() });
+    if (duplicate) return res.status(400).json({ message: "This Supplier Name already exists!" });
+
+    const newSupplier = new Supplier({
+      supplierId: nextSplId,
+      name, contactPerson, phone, address
+    });
+
+    await newSupplier.save();
+    res.status(201).json(newSupplier);
+  } catch (err) {
+    res.status(400).json({ message: "Failed to register supplier", error: err.message });
+  }
+});
+
+app.delete('/api/suppliers/:id', async (req, res) => {
+  try {
+    await Supplier.findByIdAndDelete(req.params.id);
+    res.json({ message: "Supplier deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ message: "Delete failed" });
   }
 });
 

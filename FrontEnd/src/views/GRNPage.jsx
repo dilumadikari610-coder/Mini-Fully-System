@@ -3,7 +3,7 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import { 
   Plus, CheckCircle, ArrowLeft, Package, 
-  Truck, CreditCard, FileText, Search, Trash2, Calendar
+  Truck, CreditCard, FileText, Search, Trash2, Calendar, Printer
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -12,9 +12,12 @@ const GRNPage = ({ onRefresh }) => {
   const [loading, setLoading] = useState(false);
   const [grnList, setGrnList] = useState([]); 
   const [dbMaterials, setDbMaterials] = useState([]); 
+  
+  // 💡 NEW STATE: ඩේටාබේස් එකෙන් එන Suppliers ලැයිස්තුව තබා ගැනීමට
+  const [suppliersList, setSuppliersList] = useState([]); 
 
-  // 💡 NEW STATE: Form එක පෙන්වන්නේද නැතහොත් කලින් කරපු ලැයිස්තුව පෙන්වන්නේද කියා තීරණය කිරීමට
   const [isCreating, setIsCreating] = useState(false);
+  const [printTarget, setPrintTarget] = useState(null);
 
   // --- SEARCHABLE DROPDOWN STATES ---
   const [materialSearch, setMaterialSearch] = useState(''); 
@@ -43,6 +46,7 @@ const GRNPage = ({ onRefresh }) => {
   useEffect(() => {
     fetchAllGRNRecords();
     fetchRegisteredMaterials();
+    fetchRegisteredSuppliers(); // 💡 පිටුව ලෝඩ් වෙද්දීම සැබෑ Suppliers ලෝඩ් කරයි
 
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -56,6 +60,7 @@ const GRNPage = ({ onRefresh }) => {
   useEffect(() => {
     if (isCreating) {
       generateFrontendInvoiceCode();
+      setHeader(prev => ({ ...prev, date: new Date().toISOString().split('T')[0] }));
     }
   }, [isCreating, grnList]);
 
@@ -77,11 +82,22 @@ const GRNPage = ({ onRefresh }) => {
     }
   };
 
+  // 💡 NEW FUNCTION: Supplier Registration එකෙන් සේව් කරන Suppliers API එකෙන් ලෝඩ් කිරීම
+  const fetchRegisteredSuppliers = async () => {
+    try {
+      const res = await axios.get('http://192.168.1.19:5000/api/suppliers');
+      setSuppliersList(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error("Failed to fetch registered suppliers:", err);
+    }
+  };
+
   const generateFrontendInvoiceCode = async () => {
     try {
       const res = await axios.get('http://192.168.1.19:5000/api/grn/next-invoice');
       if (res.data && res.data.nextInvoice) {
-        setHeader(prev => ({ ...prev, invoiceCode: res.data.nextInvoice }));
+        const customGRNCode = res.data.nextInvoice.replace("INV", "GRN");
+        setHeader(prev => ({ ...prev, invoiceCode: customGRNCode }));
         return;
       }
     } catch (err) {
@@ -89,25 +105,25 @@ const GRNPage = ({ onRefresh }) => {
     }
 
     if (grnList.length === 0) {
-      setHeader(prev => ({ ...prev, invoiceCode: 'INV000001' }));
+      setHeader(prev => ({ ...prev, invoiceCode: 'GRN000001' }));
       return;
     }
 
     const sortedGrns = [...grnList].sort((a, b) => {
-      const numA = parseInt(a.invoiceCode?.replace("INV", "") || "0", 10);
-      const numB = parseInt(b.invoiceCode?.replace("INV", "") || "0", 10);
+      const numA = parseInt(a.invoiceCode?.replace("GRN", "").replace("INV", "") || "0", 10);
+      const numB = parseInt(b.invoiceCode?.replace("GRN", "").replace("INV", "") || "0", 10);
       return numB - numA; 
     });
 
     const lastInvoiceCode = sortedGrns[0]?.invoiceCode;
 
-    if (!lastInvoiceCode || !lastInvoiceCode.startsWith("INV")) {
-      setHeader(prev => ({ ...prev, invoiceCode: 'INV000001' }));
+    if (!lastInvoiceCode) {
+      setHeader(prev => ({ ...prev, invoiceCode: 'GRN000001' }));
       return;
     }
 
-    const lastNum = parseInt(lastInvoiceCode.replace("INV", ""), 10);
-    const nextInvoiceCode = `INV${(lastNum + 1).toString().padStart(6, '0')}`;
+    const lastNum = parseInt(lastInvoiceCode.replace("GRN", "").replace("INV", ""), 10);
+    const nextInvoiceCode = `GRN${(lastNum + 1).toString().padStart(6, '0')}`;
     setHeader(prev => ({ ...prev, invoiceCode: nextInvoiceCode }));
   };
 
@@ -123,7 +139,7 @@ const GRNPage = ({ onRefresh }) => {
   };
 
   const handleAddToList = (e) => {
-    if (e) e.preventDefault();
+    e.preventDefault();
     if (!currentSKU.itemName.trim()) return toast.error("Please search and select a valid registered material");
     if (!currentSKU.qty || Number(currentSKU.qty) <= 0) return toast.error("Enter a valid quantity");
     if (!currentSKU.cost || Number(currentSKU.cost) <= 0) return toast.error("Enter a valid unit cost");
@@ -160,7 +176,7 @@ const GRNPage = ({ onRefresh }) => {
   const grandTotalCost = itemsList.reduce((acc, item) => acc + item.total, 0);
 
   const handleConfirmGRN = async () => {
-    if (!header.invoiceCode.trim() || header.invoiceCode === 'GENERATING...') return toast.error("Invoice Code is not ready");
+    if (!header.invoiceCode.trim() || header.invoiceCode === 'GENERATING...') return toast.error("GRN Code is not ready");
     
     if (!header.vendor.trim()) return toast.error("Vendor / Supplier name is required!");
     if (!header.vehicle.trim()) return toast.error("Vehicle Number is required!");
@@ -195,7 +211,6 @@ const GRNPage = ({ onRefresh }) => {
       await axios.post('http://192.168.1.19:5000/api/grn', payload);
       toast.success("GRN Registered Successfully", { id: t });
       
-      // Reset Form States
       setIsCreating(false);
       setItemsList([]);
       setHeader({
@@ -222,11 +237,123 @@ const GRNPage = ({ onRefresh }) => {
     mat.itemName?.toLowerCase().includes(materialSearch.toLowerCase())
   );
 
+  const triggerPrintReceipt = () => {
+    window.print();
+  };
+
   return (
-    <div className="min-h-screen bg-[#F8FAFC] font-sans antialiased pb-20 text-slate-700 animate-in fade-in duration-300">
+    // 💡 FIXED: Segoe UI Font Family එක සමස්ත Layout එකටම ඇතුළත් කරන ලදී
+    <div className="min-h-screen bg-[#F8FAFC] pb-20 text-slate-700 tracking-normal antialiased select-none" style={{ fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif' }}>
       
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          .printable-invoice-area, .printable-document * { visibility: visible; }
+          .printable-invoice-area { position: absolute; left: 0; top: 0; width: 100%; padding: 0px; }
+          .no-print { display: none !important; }
+        }
+      `}</style>
+
+      {/* PRINT RECEIPT PREVIEW OVERLAY */}
+      {printTarget && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[200] flex items-center justify-center p-4 overflow-y-auto no-print">
+          <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl p-8 border border-slate-200 animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-6">
+              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-tight flex items-center gap-1.5">
+                <Printer size={16} /> GRN Receipt Print Preview
+              </h3>
+              <button 
+                onClick={() => setPrintTarget(null)}
+                className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase border border-slate-200 px-3 py-1.5 rounded-lg"
+              >
+                Close Preview
+              </button>
+            </div>
+
+            <div className="printable-invoice-area bg-white border border-slate-300 p-8 text-xs text-slate-800 tracking-normal uppercase">
+              <div className="text-center border-b-2 border-slate-900 pb-4 mb-5">
+                <h1 className="text-lg font-black tracking-tight text-slate-900">ELISHA CLOTHING PVT LTD</h1>
+                <p className="text-[9px] text-slate-400 font-bold tracking-widest mt-0.5">Garment Inventory & Material Management Pipeline</p>
+                <div className="mt-2 inline-block bg-slate-100 font-bold px-3 py-1 border border-slate-300 text-[10px]">GOODS RECEIVED NOTE RECEIPT</div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 border-b border-slate-200 pb-4 mb-5 font-medium">
+                <div className="space-y-1">
+                  <p><span className="text-slate-400 font-bold">GRN CODE:</span> <span className="font-mono font-bold text-blue-600">{printTarget.invoiceCode || printTarget.grnId}</span></p>
+                  <p><span className="text-slate-400 font-bold">DATE RECEIVED:</span> <span className="font-mono font-bold">{printTarget.date ? printTarget.date.split('T')[0] : 'N/A'}</span></p>
+                  <p><span className="text-slate-400 font-bold">VEHICLE NUMBER:</span> <span className="font-mono font-bold">{printTarget.vehicleNumber || printTarget.vehicle || 'N/A'}</span></p>
+                </div>
+                <div className="space-y-1 text-right">
+                  <p><span className="text-slate-400 font-bold">SUPPLIER / VENDOR:</span> <span className="font-bold text-slate-900">{printTarget.supplier || printTarget.vendor || 'N/A'}</span></p>
+                  <p><span className="text-slate-400 font-bold">RECEIVED BY:</span> <span className="font-bold text-slate-900">{printTarget.receivedBy || printTarget.driverName || 'N/A'}</span></p>
+                </div>
+              </div>
+
+              <table className="w-full text-left border-collapse border border-slate-400 text-[11px] mb-8">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-400 text-slate-700">
+                    <th className="p-2 border-r border-slate-300 w-10 text-center">#</th>
+                    <th className="p-2 border-r border-slate-300">Material Name / Identification</th>
+                    <th className="p-2 border-r border-slate-300 text-center w-20">Qty</th>
+                    <th className="p-2 border-r border-slate-300 text-right w-24">Unit Cost</th>
+                    <th className="p-2 text-right w-28">Net Value</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 font-semibold text-slate-800">
+                  {printTarget.items?.map((item, index) => {
+                    const itemUnitCost = Number(item.cost !== undefined ? item.cost : item.price || 0);
+                    const itemQty = Number(item.qty !== undefined ? item.qty : item.quantity || 0);
+                    const itemSubTotal = itemQty * itemUnitCost;
+
+                    return (
+                      <tr key={index}>
+                        <td className="p-2 border-r border-slate-300 text-center font-mono text-slate-400">{index + 1}</td>
+                        <td className="p-2 border-r border-slate-300">
+                          <span className="font-mono text-blue-600">[{item.code || item.materialCode}]</span> {item.itemName || item.itemDescription}
+                        </td>
+                        <td className="p-2 border-r border-slate-300 text-center font-mono">{itemQty}</td>
+                        <td className="p-2 border-r border-slate-300 text-right font-mono">{itemUnitCost.toFixed(2)}</td>
+                        <td className="p-2 text-right font-mono text-slate-900">{itemSubTotal.toFixed(2)}</td>
+                      </tr>
+                    );
+                  })}
+                  <tr className="bg-slate-50 font-bold border-t border-slate-400 text-slate-900">
+                    <td colSpan="4" className="p-2 text-right border-r border-slate-300 uppercase">Gross Aggregate Value (LKR):</td>
+                    <td className="p-2 text-right font-mono font-black border-b-4 border-double border-slate-900">
+                      {(printTarget.items?.reduce((acc, i) => {
+                        const c = Number(i.cost !== undefined ? i.cost : i.price || 0);
+                        const q = Number(i.qty !== undefined ? i.qty : i.quantity || 0);
+                        return acc + (q * c);
+                      }, 0) || 0).toFixed(2)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div className="grid grid-cols-2 gap-12 text-center text-[10px] font-bold mt-16">
+                <div>
+                  <div className="w-40 border-b border-slate-400 mx-auto mb-1.5 h-6"></div>
+                  <p className="text-slate-400 uppercase">Storekeeper Signature</p>
+                </div>
+                <div>
+                  <div className="w-40 border-b border-slate-400 mx-auto mb-1.5 h-6"></div>
+                  <p className="text-slate-400 uppercase">Authorized Officer Verification</p>
+                </div>
+              </div>
+            </div>
+
+            <button 
+              onClick={triggerPrintReceipt}
+              className="w-full mt-6 py-3 bg-slate-900 text-white font-bold text-xs uppercase rounded-xl hover:bg-slate-800 transition-all shadow-md flex items-center justify-center gap-1.5"
+            >
+              <Printer size={15} /> Confirm & Trigger Hardware Printer
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* HEADER CONTROLS */}
-      <div className="bg-white border-b border-slate-100 px-8 py-5 flex justify-between items-center sticky top-0 z-30 shadow-sm">
+      <div className="bg-white border-b border-slate-100 px-8 py-5 flex justify-between items-center sticky top-0 z-30 shadow-sm no-print">
         <div className="flex items-center gap-4">
           <button 
             onClick={() => isCreating ? setIsCreating(false) : navigate(-1)} 
@@ -244,7 +371,6 @@ const GRNPage = ({ onRefresh }) => {
           </div>
         </div>
 
-        {/* Dynamic Action Buttons inside Main Header */}
         {!isCreating ? (
           <button 
             onClick={() => setIsCreating(true)} 
@@ -266,42 +392,53 @@ const GRNPage = ({ onRefresh }) => {
       {/* BODY CONTAINER */}
       <div className="max-w-7xl mx-auto p-6">
         
-        {/* CONDITION 1: පද්ධතියට ඇතුළු වූ ගමන් පෙන්වන GRN Records ලැයිස්තුව (List View) */}
+        {/* CONDITION 1: GRN Records ලැයිස්තුව (List View) */}
         {!isCreating ? (
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden animate-in fade-in duration-200">
-            <div className="p-5 border-b border-slate-50 bg-slate-50/50 flex items-center gap-2">
-              <FileText size={16} className="text-slate-400" />
-              <h3 className="text-xs font-bold text-slate-800">Recent GRN Records History</h3>
+          <div className="bg-white border border-slate-200 overflow-hidden shadow-none rounded-none no-print animate-in fade-in duration-200">
+            <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
+              <FileText size={15} className="text-slate-500" />
+              <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wide">Recent GRN Records History</h3>
             </div>
 
             {grnList.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="bg-slate-100/70 text-slate-600 text-[11px] font-semibold tracking-wide uppercase border-b border-slate-200">
-                      <th className="py-3 px-6">Invoice Code</th>
-                      <th className="py-3 px-6">Date</th>
-                      <th className="py-3 px-6">Vendor / Supplier</th>
-                      <th className="py-3 px-6">Vehicle No</th>
-                      <th className="py-3 px-6">Received By</th>
-                      <th className="py-3 px-6 text-center">Items Count</th>
+                    <tr className="bg-slate-50 text-slate-700 text-[10px] font-bold tracking-wide uppercase border-b border-slate-200">
+                      <th className="py-2.5 px-5 border-r border-slate-200">GRN Code</th>
+                      <th className="py-2.5 px-5 border-r border-slate-200">Date</th>
+                      <th className="py-2.5 px-5 border-r border-slate-200">Vendor / Supplier</th>
+                      <th className="py-2.5 px-5 border-r border-slate-200">Vehicle No</th>
+                      <th className="py-2.5 px-5 border-r border-slate-200">Received By</th>
+                      <th className="py-2.5 px-5 border-r border-slate-200 text-center">Items</th>
+                      <th className="py-2.5 px-5 text-center w-24">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-600 bg-white">
+                  <tbody className="divide-y divide-slate-100 text-[11px] font-semibold text-slate-600 bg-white">
                     {[...grnList].reverse().map((grn, idx) => (
-                      <tr key={grn._id || idx} className="hover:bg-slate-50/70 transition-colors uppercase">
-                        <td className="py-3.5 px-6 font-mono font-bold text-blue-600">{grn.invoiceCode}</td>
-                        <td className="py-3.5 px-6 text-slate-500 font-semibold flex items-center gap-1.5 normal-case">
-                          <Calendar size={13} className="text-slate-400" />
-                          {grn.date ? grn.date.split('T')[0] : 'N/A'}
+                      <tr key={grn._id || idx} className="hover:bg-slate-50/50 transition-colors uppercase">
+                        <td className="py-2.5 px-5 font-mono font-bold text-blue-600 border-r border-slate-200/60">
+                          {grn.invoiceCode || grn.grnId || `GRN-${grn._id?.slice(-6).toUpperCase()}`}
                         </td>
-                        <td className="py-3.5 px-6 text-slate-800 font-semibold">{grn.vendor || grn.supplier || 'N/A'}</td>
-                        <td className="py-3.5 px-6 font-mono text-slate-700 font-bold">{grn.vehicleNumber || grn.vehicle || 'N/A'}</td>
-                        <td className="py-3.5 px-6 text-slate-600">{grn.receivedBy || grn.driverName || 'N/A'}</td>
-                        <td className="py-3.5 px-6 text-center font-extrabold text-slate-700">
-                          <span className="bg-slate-100 px-2.5 py-0.5 rounded-full text-[11px]">
-                            {grn.items ? grn.items.length : 0}
-                          </span>
+                        <td className="py-2.5 px-5 text-slate-500 font-mono flex items-center gap-1.5 border-r border-slate-200/60 tracking-normal lowercase">
+                          <Calendar size={13} className="text-slate-400" />
+                          {grn.date ? grn.date.split('T')[0] : '2026-06-20'}
+                        </td>
+                        <td className="py-2.5 px-5 text-slate-800 font-bold border-r border-slate-200/60">{grn.vendor || grn.supplier || 'N/A'}</td>
+                        <td className="py-2.5 px-5 font-mono text-slate-700 font-bold border-r border-slate-200/60">{grn.vehicleNumber || grn.vehicle || 'N/A'}</td>
+                        <td className="py-2.5 px-5 text-slate-600 border-r border-slate-200/60">{grn.receivedBy || grn.driverName || 'N/A'}</td>
+                        <td className="py-2.5 px-5 text-center font-bold text-slate-700 border-r border-slate-200/60">
+                          {grn.items ? grn.items.length : 0}
+                        </td>
+                        <td className="py-2.5 px-5 text-center">
+                          <button 
+                            type="button"
+                            onClick={() => setPrintTarget(grn)}
+                            className="p-1 text-slate-500 hover:text-slate-950 hover:bg-slate-100 rounded transition-all flex items-center justify-center mx-auto"
+                            title="Print GRN Slip"
+                          >
+                            <Printer size={15} />
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -311,7 +448,7 @@ const GRNPage = ({ onRefresh }) => {
             ) : (
               <div className="p-16 text-center space-y-3">
                 <div className="p-3 bg-slate-50 text-slate-400 rounded-full inline-block">
-                  <Package size={28} />
+                  <Package size={24} />
                 </div>
                 <p className="text-slate-400 text-xs font-medium uppercase tracking-wider">No GRN Records Found in Database</p>
                 <button 
@@ -325,8 +462,8 @@ const GRNPage = ({ onRefresh }) => {
           </div>
         ) : (
           
-          // CONDITION 2: ADD NEW BUTTON එක ක්ලික් කළ විට විතරක් පෙන්වන FORM එක
-          <div className="grid grid-cols-12 gap-6 animate-in slide-in-from-bottom-4 duration-200">
+          // CONDITION 2: ADD NEW FORM CREATION VIEW
+          <div className="grid grid-cols-12 gap-6 no-print animate-in slide-in-from-bottom-4 duration-200">
             
             {/* LEFT COLUMN: REFERENCE INFO */}
             <div className="col-span-12 lg:col-span-4 space-y-6">
@@ -337,8 +474,28 @@ const GRNPage = ({ onRefresh }) => {
                 </div>
                 
                 <div className="space-y-4">
-                  <InputField label="Invoice Code (Auto-Generated)" icon={<CreditCard size={14}/>} placeholder="Generating..." value={header.invoiceCode} readOnly={true} onChange={() => {}} />
-                  <InputField label="Vendor / Supplier" icon={<Truck size={14}/>} placeholder="e.g. Finished Goods Stores" value={header.vendor} onChange={(v) => setHeader({...header, vendor: v})} />
+                  <InputField label="GRN Code (Auto-Generated)" icon={<CreditCard size={14}/>} placeholder="Generating..." value={header.invoiceCode} readOnly={true} onChange={() => {}} />
+                  <InputField label="Transaction Date" icon={<Calendar size={14}/>} placeholder="YYYY-MM-DD" value={header.date} readOnly={true} onChange={() => {}} />
+                  
+                  {/* 💡 FIXED LOGIC: අතින් ලියන Input එක වෙනුවට, Supplier Registration එකෙන් එන දත්ත Dropdown එකකට දමන ලදී */}
+                  <div className="space-y-1 block">
+                    <label className="text-xs font-semibold text-slate-600 block mb-1">Vendor / Supplier</label>
+                    <div className="relative">
+                      <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"><Truck size={14}/></div>
+                      <select
+                        className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 text-slate-800 rounded-xl text-xs font-medium outline-none focus:border-blue-500 focus:bg-white transition-all uppercase"
+                        value={header.vendor}
+                        onChange={(e) => setHeader({...header, vendor: e.target.value})}
+                        required
+                      >
+                        <option value="" disabled>Select Registered Supplier</option>
+                        {suppliersList.map(sup => (
+                          <option key={sup._id} value={sup.name}>{sup.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
                   <InputField label="Vehicle Number" icon={<Truck size={14}/>} placeholder="e.g. WP LC-4920" value={header.vehicle} onChange={(v) => setHeader({...header, vehicle: v})} />
                   <InputField label="Driver Name" icon={<FileText size={14}/>} placeholder="e.g. Receiving Department" value={header.driverName} onChange={(v) => setHeader({...header, driverName: v})} />
                 </div>
@@ -413,7 +570,6 @@ const GRNPage = ({ onRefresh }) => {
                   </form>
                 </div>
 
-                {/* Added Items Grid Table View */}
                 {itemsList.length > 0 && (
                   <div className="mt-6 border-t border-slate-100 pt-5">
                     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
@@ -453,7 +609,6 @@ const GRNPage = ({ onRefresh }) => {
                   </div>
                 )}
 
-                {/* LIVE SUMMARY TOTALS */}
                 <div className="mt-6 p-4 bg-slate-50 rounded-xl border border-slate-200 flex justify-around text-center text-xs font-medium">
                   <div>
                     <p className="text-slate-500">Total SKU</p>
@@ -471,7 +626,6 @@ const GRNPage = ({ onRefresh }) => {
                   </div>
                 </div>
 
-                {/* Cancel Process Button inside Creation Mode */}
                 <button
                   type="button"
                   onClick={() => setIsCreating(false)}
@@ -490,7 +644,6 @@ const GRNPage = ({ onRefresh }) => {
   );
 };
 
-// --- INPUT FIELD HELPER ---
 const InputField = ({ label, icon, placeholder, value, readOnly, onChange }) => (
   <div className="space-y-1 block">
     <label className="text-xs font-semibold text-slate-600 block mb-1">{label}</label>

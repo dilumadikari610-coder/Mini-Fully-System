@@ -13,7 +13,8 @@ import {
   FilePlus,
   FileText,
   Boxes,
-  ChevronDown
+  ChevronDown,
+  Truck // ✅ Supplier මෙනු එක සඳහා Truck Icon එක Import කරන ලදී
 } from 'lucide-react';
 
 const Sidebar = ({ user, logout, onAddNew }) => {
@@ -55,8 +56,9 @@ const Sidebar = ({ user, logout, onAddNew }) => {
     },
   ];
 
-  // 💡 482de7 FIXED: Settings Dropdown එක ඇතුළට යන Sub-links එකතුව
+  // 💡 FIXED: Settings Dropdown එක ඇතුළට Supplier Registration පිටුව මුලින්ම එකතු කරන ලදී
   const settingsSubItems = [
+    { id: 'supplier-register', name: 'Supplier Registration', icon: Truck }, // ✅ ADDED
     { id: 'materials', name: 'Materials Registry', icon: Boxes },
     { id: 'users', name: 'User Management', icon: Users },
     { id: 'settings', name: 'Department', icon: Settings },
@@ -163,7 +165,7 @@ const Sidebar = ({ user, logout, onAddNew }) => {
           })}
 
           {/* ================================================== */}
-          {/* 💡 SOLUTIONS: COLLAPSIBLE DROPDOWN SYSTEM ACCORDION (Admin Only) */}
+          {/* Collapsible Dropdown System Accordion (Admin Only) */}
           {/* ================================================== */}
           {user?.role === 'admin' && (
             <div className="space-y-1 block relative">
@@ -198,7 +200,7 @@ const Sidebar = ({ user, logout, onAddNew }) => {
               {/* Sub-items Grid Container (Smooth Slide Accordion) */}
               <div 
                 className={`transition-all duration-300 ease-in-out overflow-hidden space-y-1 pl-4 ${
-                  isSettingsOpen ? 'max-h-48 opacity-100 mt-1' : 'max-h-0 opacity-0 pointer-events-none'
+                  isSettingsOpen ? 'max-h-56 opacity-100 mt-1' : 'max-h-0 opacity-0 pointer-events-none'
                 }`}
               >
                 {settingsSubItems.map((sub) => (

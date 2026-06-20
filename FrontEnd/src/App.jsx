@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Search, Bell } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
-import axios from 'axios'; // (නැතහොත් axios)
+import axios from 'axios';
 
 // API Service & Context
 import { AppProvider, useApp } from './context/AppContext';
@@ -22,7 +22,8 @@ import ToolAllocation from './views/ToolAllocation';
 import GRNPage from './views/GRNPage';
 import InventoryReport from './views/InventoryReport';
 import SettingsView from './views/SettingsView'; 
-import MaterialsRegistry from './views/MaterialsRegistry'; // ✅ ADDED: Materials Registry පිටුව Import කිරීම
+import MaterialsRegistry from './views/MaterialsRegistry';
+import SupplierRegister from './views/SupplierRegister'; // ✅ ADDED: Supplier Registration පිටුව Import කිරීම
 
 const MainAppContent = () => {
   const { user, logout } = useApp();
@@ -148,10 +149,15 @@ const MainAppContent = () => {
               element={<InventoryManager grns={grns} onRefresh={loadSystemData} />} 
             />
 
-            {/* ✅ NEW ROUTE: Materials Registry පිටුවට අදාළ ලිපිනය */}
             <Route 
               path="/materials" 
               element={<MaterialsRegistry />} 
+            />
+
+            {/* ✅ NEW ROUTE: Supplier Registration පිටුවට අදාළ ලිපිනය */}
+            <Route 
+              path="/supplier-register" 
+              element={<SupplierRegister />} 
             />
 
             <Route 
