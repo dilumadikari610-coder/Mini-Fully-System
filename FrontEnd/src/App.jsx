@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { Search, Bell } from 'lucide-react';
+import { Search, Bell, Check, MailOpen, CheckSquare, Trash2, Layers } from 'lucide-react'; // ✅ FIXED: Layers අයිකනය නිවැරදිව Import කරන ලදී
 import { Toaster } from 'react-hot-toast';
 import axios from 'axios';
+import toast from 'react-hot-toast';
 
 // API Service & Context
 import { AppProvider, useApp } from './context/AppContext';
@@ -23,7 +24,7 @@ import GRNPage from './views/GRNPage';
 import InventoryReport from './views/InventoryReport';
 import SettingsView from './views/SettingsView'; 
 import MaterialsRegistry from './views/MaterialsRegistry';
-import SupplierRegister from './views/SupplierRegister'; // ✅ ADDED: Supplier Registration පිටුව Import කිරීම
+import SupplierRegister from './views/SupplierRegister';
 
 const MainAppContent = () => {
   const { user, logout } = useApp();
@@ -33,6 +34,11 @@ const MainAppContent = () => {
   const [departments, setDepartments] = useState([]); 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const systemColor = "#A47148";
+
+  // 🔔 NOTIFICATION STATES
+  const [notifications, setNotifications] = useState([]);
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const notifRef = useRef(null);
 
   // 1. Load Maintenance Job Data
   const loadData = async () => {
@@ -63,21 +69,78 @@ const MainAppContent = () => {
     }
   };
 
+  // 🔔 3. Fetch Real-time Notifications for the logged-in User
+  const loadNotifications = async () => {
+    if (!user || !user.uid) return;
+    try {
+      const res = await axios.get(`http://192.168.1.19:5000/api/notifications/${user.uid}`);
+      setNotifications(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error("Failed to load notifications:", err);
+    }
+  };
+
+  // 🔔 4. Mark Single Notification as Read
+  const handleMarkAsRead = async (id) => {
+    try {
+      await axios.patch(`http://192.168.1.19:5000/api/notifications/read/${id}`);
+      setNotifications(prev => prev.map(n => n._id === id ? { ...n, isRead: true } : n));
+      toast.success("Notification marked as read");
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // 🔔 5. Mark All Notifications as Read
+  const handleMarkAllAsRead = async () => {
+    const unreadNotifs = notifications.filter(n => !n.isRead);
+    if (unreadNotifs.length === 0) return;
+
+    try {
+      await Promise.all(unreadNotifs.map(n => axios.patch(`http://192.168.1.19:5000/api/notifications/read/${n._id}`)));
+      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+      toast.success("All notifications marked as read");
+    } catch (err) {
+      console.error("Error marking all as read:", err);
+    }
+  };
+
+  // 🔔 6. Clear Notifications (Frontend එකෙන් පමණක් සඟවයි)
+  const handleClearNotifications = () => {
+    if (notifications.length === 0) return;
+    setNotifications([]); 
+    toast.success("Notification panel cleared locally");
+  };
+
   // Global Sync Logic (Refresh every 60s)
   useEffect(() => {
     if (user) {
       loadData();
       loadSystemData();
+      loadNotifications(); 
       
       const interval = setInterval(() => {
         loadData();
         loadSystemData();
+        loadNotifications(); 
       }, 60000);
-      return () => clearInterval(interval);
+
+      const handleClickOutside = (e) => {
+        if (notifRef.current && !notifRef.current.contains(e.target)) {
+          setIsNotifOpen(false);
+        }
+      };
+      document.addEventListener('mousedown', handleClickOutside);
+
+      return () => {
+        clearInterval(interval);
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
     }
   }, [user]);
 
-  // --- AUTHENTICATION GUARD ---
+  const unreadCount = notifications.filter(n => !n.isRead).length;
+
   if (!user) {
     return (
       <Routes>
@@ -88,7 +151,7 @@ const MainAppContent = () => {
   }
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-900">
+    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-900 antialiased select-none">
       <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
 
       {/* SIDEBAR */}
@@ -109,10 +172,93 @@ const MainAppContent = () => {
           </div>
           
           <div className="flex items-center gap-4">
-            <button className="p-2 text-slate-500 hover:bg-slate-50 rounded-lg relative transition-colors">
-              <Bell size={19} />
-              <span className="absolute top-2 right-2.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-            </button>
+            
+            {/* NOTIFICATION SYSTEM CONTAINER */}
+            <div className="relative" ref={notifRef}>
+              <button 
+                onClick={() => setIsNotifOpen(!isNotifOpen)}
+                className="p-2 text-slate-500 hover:bg-slate-50 rounded-lg relative transition-colors outline-none"
+              >
+                <Bell size={19} />
+                {unreadCount > 0 && (
+                  <span className="absolute top-1.5 right-2 w-4 h-4 bg-red-500 text-white rounded-full text-[9px] font-black flex items-center justify-center border border-white">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {/* DROP-DOWN NOTIFICATION BLOCK */}
+              {isNotifOpen && (
+                // 💡 FIXED: Segoe UI Font Family එක සහ font-normal (Not Bold) තත්ත්වය තහවුරු කරන ලදී
+                <div 
+                  className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 animate-in fade-in slide-in-from-top-3 duration-200 overflow-hidden font-normal"
+                  style={{ fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif' }}
+                >
+                  <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-t-2xl">
+                    <h3 className="text-xs font-normal text-slate-800 uppercase tracking-wide">System Notifications</h3>
+                    <span className="text-[10px] font-normal bg-blue-50 text-blue-600 px-2.5 py-1 rounded-full">
+                      {unreadCount} New
+                    </span>
+                  </div>
+
+                  {/* BULK OPTION BUTTONS */}
+                  {notifications.length > 0 && (
+                    <div className="p-1.5 border-b border-slate-100 bg-slate-50 flex items-center justify-between text-[11px] font-normal text-slate-500">
+                      <button 
+                        onClick={handleMarkAllAsRead} 
+                        className="flex items-center gap-1.5 px-2.5 py-1 hover:bg-slate-200/60 rounded-md text-slate-600 transition-colors font-normal"
+                      >
+                        <CheckSquare size={13} /> Mark all read
+                      </button>
+                      <button 
+                        onClick={handleClearNotifications} 
+                        className="flex items-center gap-1.5 px-2.5 py-1 hover:bg-red-50 text-red-600 rounded-md transition-colors font-normal"
+                      >
+                        <Trash2 size={13} /> Clear view
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="max-h-64 overflow-y-auto divide-y divide-slate-50">
+                    {notifications.length > 0 ? (
+                      notifications.map((notif) => (
+                        <div 
+                          key={notif._id} 
+                          className={`p-4 text-xs transition-colors flex justify-between items-start gap-3.5 ${
+                            notif.isRead ? 'bg-white opacity-60' : 'bg-blue-50/40 hover:bg-blue-50/70'
+                          }`}
+                        >
+                          {/* 💡 FIXED: font-normal මඟින් අකුරු Bold වීම සම්පූර්ණයෙන්ම වළක්වයි */}
+                          <div className="space-y-1.5 flex-1 font-normal">
+                            <p className="text-slate-700 font-normal leading-relaxed uppercase tracking-tight">{notif.message}</p>
+                            <p className="text-[9px] text-slate-400 font-normal flex items-center gap-1">
+                              <Layers size={10} className="text-slate-300" />
+                              {notif.createdAt ? new Date(notif.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: true}) : 'Just Now'}
+                            </p>
+                          </div>
+                          
+                          {!notif.isRead && (
+                            <button 
+                              onClick={() => handleMarkAsRead(notif._id)}
+                              className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-emerald-600 transition-colors shadow-sm shrink-0 mt-0.5"
+                              title="Mark as Read"
+                            >
+                              <Check size={12} strokeWidth={2} />
+                            </button>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-12 text-center text-slate-400 text-[11px] font-normal uppercase tracking-wider space-y-1.5 bg-white">
+                        <MailOpen size={24} className="mx-auto text-slate-200 mb-2" />
+                        <p>No Notifications Found</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="h-8 w-px bg-slate-200 mx-2"></div>
             <div className="flex items-center gap-3">
               <div className="text-right hidden sm:block">
@@ -154,7 +300,6 @@ const MainAppContent = () => {
               element={<MaterialsRegistry />} 
             />
 
-            {/* ✅ NEW ROUTE: Supplier Registration පිටුවට අදාළ ලිපිනය */}
             <Route 
               path="/supplier-register" 
               element={<SupplierRegister />} 
