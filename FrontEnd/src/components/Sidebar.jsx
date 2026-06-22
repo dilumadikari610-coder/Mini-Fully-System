@@ -14,7 +14,7 @@ import {
   FileText,
   Boxes,
   ChevronDown,
-  Truck // ✅ Supplier මෙනු එක සඳහා Truck Icon එක Import කරන ලදී
+  Truck 
 } from 'lucide-react';
 
 const Sidebar = ({ user, logout, onAddNew }) => {
@@ -51,14 +51,15 @@ const Sidebar = ({ user, logout, onAddNew }) => {
     { 
       id: 'reports', 
       name: 'Inventory Report', 
-      icon: FileText, 
-      adminOnly: true 
+      icon: FileText,
+      // 💡 FIXED: Admin සහ Maintenance Staff කියන භූමිකාවන් දෙකට විතරක් සීමා කිරීමට array එකක් එකතු කරන ලදී
+      allowedRoles: ['Admin', 'Maintenance Staff'] 
     },
   ];
 
-  // 💡 FIXED: Settings Dropdown එක ඇතුළට Supplier Registration පිටුව මුලින්ම එකතු කරන ලදී
+  // 💡 Settings Dropdown එක ඇතුළට Supplier Registration පිටුව මුලින්ම එකතු කරන ලදී
   const settingsSubItems = [
-    { id: 'supplier-register', name: 'Supplier Registration', icon: Truck }, // ✅ ADDED
+    { id: 'supplier-register', name: 'Supplier Registration', icon: Truck }, 
     { id: 'materials', name: 'Materials Registry', icon: Boxes },
     { id: 'users', name: 'User Management', icon: Users },
     { id: 'settings', name: 'Department', icon: Settings },
@@ -128,7 +129,11 @@ const Sidebar = ({ user, logout, onAddNew }) => {
 
           {/* Standard Navigation Rendering */}
           {navItems.map((item) => {
+            // 💡 1. පැරණි Admin Only සීමාවන් එලෙසම පරීක්ෂා කරයි
             if (item.adminOnly && user?.role !== 'admin') return null;
+            
+            // 💡 2. FIXED ROLE GUARD: පිටුවට අදාළව allowedRoles ලියා ඇත්නම්, යූසර්ගේ userType එක (Admin හෝ Maintenance Staff) ඒ ඇතුළේ තියෙනවාද කියා බලයි. නැත්නම් සඟවයි!
+            if (item.allowedRoles && !item.allowedRoles.includes(user?.userType)) return null;
             
             return (
               <NavLink
