@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Search, Bell, Check, MailOpen, CheckSquare, Trash2, Layers } from 'lucide-react'; 
 import { Toaster } from 'react-hot-toast';
 import axios from 'axios';
@@ -25,11 +25,12 @@ import InventoryReport from './views/InventoryReport';
 import SettingsView from './views/SettingsView'; 
 import MaterialsRegistry from './views/MaterialsRegistry';
 import SupplierRegister from './views/SupplierRegister';
-// 💡 WORKFLOW ROUTING LINK
 import WorkflowConfiguration from './views/WorkflowConfiguration';
+import GRNApprovalsView from './views/GRNApprovalsView';
 
 const MainAppContent = () => {
   const { user, logout } = useApp();
+  const navigate = useNavigate(); 
   const [requests, setRequests] = useState([]);
   const [grns, setGrns] = useState([]); 
   const [staffList, setStaffList] = useState([]); 
@@ -225,7 +226,14 @@ const MainAppContent = () => {
                       notifications.map((notif) => (
                         <div 
                           key={notif._id} 
-                          className={`p-4 text-xs transition-colors flex justify-between items-start gap-3.5 ${
+                          onClick={() => {
+                            handleMarkAsRead(notif._id);
+                            setIsNotifOpen(false);
+                            if (notif.message?.toLowerCase().includes("grn")) {
+                              navigate('/grn-approvals');
+                            }
+                          }}
+                          className={`p-4 text-xs transition-colors flex justify-between items-start gap-3.5 cursor-pointer ${
                             notif.isRead ? 'bg-white opacity-60' : 'bg-blue-50/40 hover:bg-blue-50/70'
                           }`}
                         >
@@ -239,7 +247,10 @@ const MainAppContent = () => {
                           
                           {!notif.isRead && (
                             <button 
-                              onClick={() => handleMarkAsRead(notif._id)}
+                              onClick={(e) => {
+                                e.stopPropagation(); 
+                                handleMarkAsRead(notif._id);
+                              }}
                               className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-emerald-600 transition-colors shadow-sm shrink-0 mt-0.5"
                               title="Mark as Read"
                             >
@@ -316,10 +327,14 @@ const MainAppContent = () => {
               } 
             />
 
-            {/* 💡 NEW ROUTE LINK: WORKFLOW MATRIX CONFIGURATION */}
             <Route 
               path="/workflow-setup" 
               element={<WorkflowConfiguration />} 
+            />
+
+            <Route 
+              path="/grn-approvals" 
+              element={<GRNApprovalsView onRefresh={loadSystemData} />} 
             />
 
             <Route 
