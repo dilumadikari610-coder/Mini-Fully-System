@@ -12,7 +12,7 @@ const Material = require('./models/Material');
 const StaffInventory = require('./models/StaffInventory'); 
 const Notification = require('./models/Notification'); 
 const Supplier = require('./models/Supplier'); 
-// 💡 WORKFLOW ENGINE MODEL
+// WORKFLOW ENGINE MODEL
 const WorkflowTemplate = require('./models/WorkflowTemplate'); 
 
 const app = express();
@@ -23,33 +23,37 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // --- DATABASE CONNECTION & AUTOMATIC INDEX RESET LOGIC ---
+// 💡 FIXED: Top-level await දෝෂය මඟහැරීමට Promises (.then) ලොජික් එක පමණක් භාවිතා කරන ලදී
 mongoose.connect('mongodb://localhost:27017/mms_db')
-  .then(async () => {
+  .then(() => {
     console.log('✅ Connected to MongoDB (mms_db)');
     
-    try {
-      if (mongoose.connection.models['Inventory']) {
-        await mongoose.connection.models['Inventory'].syncIndexes();
-        console.log('🔄 Inventory Database Indexes Synced Successfully.');
-      }
-
-      if (mongoose.connection.models['StaffInventory']) {
-        await mongoose.connection.models['StaffInventory'].syncIndexes();
-        console.log('🔄 StaffInventory Database Indexes Synced Successfully.');
-      }
-
-      const collections = await mongoose.connection.db.listCollections().toArray();
-      const deptExists = collections.some(col => col.name === 'departments');
-      
-      if (deptExists) {
-        await mongoose.connection.db.dropCollection('departments');
-        console.log('🗑️ Cleared stale unique indexes by dropping departments collection.');
-      }
-    } catch (indexErr) {
-      console.log('ℹ️ Safe core database initialization passed.');
+    // Core database safe initializations
+    if (mongoose.connection.models['Inventory']) {
+      mongoose.connection.models['Inventory'].syncIndexes()
+        .then(() => console.log('🔄 Inventory Database Indexes Synced Successfully.'))
+        .catch(() => {});
     }
 
-    await seedDefaultAdmin();
+    if (mongoose.connection.models['StaffInventory']) {
+      mongoose.connection.models['StaffInventory'].syncIndexes()
+        .then(() => console.log('🔄 StaffInventory Database Indexes Synced Successfully.'))
+        .catch(() => {});
+    }
+
+    mongoose.connection.db.listCollections().toArray()
+      .then(collections => {
+        const deptExists = collections.some(col => col.name === 'departments');
+        if (deptExists) {
+          mongoose.connection.db.dropCollection('departments')
+            .then(() => console.log('🗑️ Cleared stale unique indexes by dropping departments collection.'))
+            .catch(() => {});
+        }
+      })
+      .catch(() => {});
+
+    // Trigger Admin Auto-seed rotation without top-level await
+    seedDefaultAdmin();
   })
   .catch(err => console.error('❌ Connection error:', err));
 
@@ -373,21 +377,40 @@ app.get('/api/inventory', async (req, res) => {
   }
 });
 
+// DYNAMIC WORKFLOW CONFIGURATION INTEGRATED GRN POST ROUTE
 app.post('/api/grn', async (req, res) => {
   try {
     const incomingCode = req.body.invoiceCode || await generateNextInvoiceCode();
     const finalGRNCode = incomingCode.replace("INV", "GRN"); 
 
-    console.log(`📥 Database Syncing New GRN Sequence: ${finalGRNCode}`);
+    const { workflowTemplateCode } = req.body;
+    let initialStatus = 'In Stock'; 
+    let assignedApproversChain = [];
+    let currentApprovalLevel = 0;
+
+    if (workflowTemplateCode) {
+      const template = await WorkflowTemplate.findOne({ code: workflowTemplateCode });
+      if (template && template.approvers.length > 0) {
+        initialStatus = 'PENDING_APPROVAL';
+        assignedApproversChain = template.approvers;
+        currentApprovalLevel = 1; 
+      }
+    }
+
+    console.log(`📥 Database Syncing New GRN Sequence: ${finalGRNCode} | Status: ${initialStatus}`);
     
     const newGrn = new ToolGRN({
       ...req.body,
       invoiceCode: finalGRNCode,
-      grnId: finalGRNCode
+      grnId: finalGRNCode,
+      status: initialStatus,
+      workflowTemplateCode: workflowTemplateCode || 'DIRECT_POST',
+      currentApprovalLevel: currentApprovalLevel,
+      approversChain: assignedApproversChain
     });
     const savedGrn = await newGrn.save();
 
-    if (req.body.items && req.body.items.length > 0) {
+    if (initialStatus === 'In Stock' && req.body.items && req.body.items.length > 0) {
       const inventoryEntries = req.body.items.map(item => {
         const parsedQty = Number(item.qty || item.quantity);
         const parsedCost = Number(item.cost || item.price);
@@ -405,6 +428,17 @@ app.post('/api/grn', async (req, res) => {
       });
       
       await Inventory.insertMany(inventoryEntries);
+    } else if (initialStatus === 'PENDING_APPROVAL' && assignedApproversChain.length > 0) {
+      const firstApprover = assignedApproversChain.find(appr => appr.orderLevel === 1);
+      if (firstApprover) {
+        const newNotif = new Notification({
+          userId: firstApprover.user,
+          message: `New GRN Pending Approval: ${finalGRNCode} requires your Level-1 Authorization.`,
+          type: 'COMPLETED', 
+          createdAt: new Date()
+        });
+        await newNotif.save();
+      }
     }
 
     res.status(201).json(savedGrn);
@@ -455,8 +489,7 @@ app.patch('/api/grn/allocate', async (req, res) => {
   }
 });
 
-// 💡 NEW WORKFLOW METHOD: BULK MULTI-ITEM ALLOCATION PIPELINE
-// එකම ඩොකියුමන්ට් එකකින් බඩු ලැයිස්තුවක් එකවරම අනුමැතිය සහ ස්ටොක් වලට ඇතුළත් කිරීමේ API එක
+// NEW WORKFLOW METHOD: BULK MULTI-ITEM ALLOCATION PIPELINE
 app.post('/api/grn/allocate-bulk', async (req, res) => {
   try {
     const { allocationDocNo, staffId, staffName, allocatedItems } = req.body;
@@ -465,15 +498,12 @@ app.post('/api/grn/allocate-bulk', async (req, res) => {
       return res.status(400).json({ message: "Allocation item list basket is empty" });
     }
 
-    // සෑම අයිතමයක්ම (Item) එකින් එක වෙන් වෙන්ව Staff Inventory එකට Post කිරීම
     const operations = allocatedItems.map(async (item) => {
-      // 1. Inventory collection එක Update කිරීම
       await Inventory.findOneAndUpdate(
         { grnId: item.grnInvoiceCode, code: item.materialCode },
         { $set: { status: 'Assigned', assignedTo: staffName } }
       );
 
-      // 2. Staff Personal Custody Ledger (StaffInventory) එකට Upsert කිරීම
       await StaffInventory.findOneAndUpdate(
         { userId: staffId, code: item.materialCode },
         {
@@ -484,7 +514,6 @@ app.post('/api/grn/allocate-bulk', async (req, res) => {
         { upsert: true, new: true }
       );
 
-      // 3. ToolGRN Embedded array එක ඇතුළේ තියෙන අයිතමයන්ගේ Statuses යාවත්කාලීන කිරීම
       await ToolGRN.findOneAndUpdate(
         { grnId: item.grnInvoiceCode, "items.code": item.materialCode },
         {
@@ -498,7 +527,6 @@ app.post('/api/grn/allocate-bulk', async (req, res) => {
 
     await Promise.all(operations);
 
-    // 🔔 සේවකයාට තත්‍ය කාලීන Bulk Notification එකක් යැවීම
     const bulkNotif = new Notification({
       userId: staffId,
       message: `Bulk Stock Handover Verified! Document ${allocationDocNo} assigned ${allocatedItems.length} inventory tools to your custody.`,
@@ -662,8 +690,7 @@ app.delete('/api/departments/:id', async (req, res) => {
   }
 });
 
-// --- 💡 NEW WORKFLOW ROUTING ENGINE ENDPOINTS ---
-// 1. Template එකක් අලුතින් Create කිරීම
+// --- NEW WORKFLOW ROUTING ENGINE ENDPOINTS ---
 app.post('/api/workflow/templates', async (req, res) => {
   try {
     const { code, description, permission, approvers } = req.body;
@@ -683,7 +710,6 @@ app.post('/api/workflow/templates', async (req, res) => {
   }
 });
 
-// 2. දැනට තියෙන Templates ඔක්කොම Frontend Dropdowns වලට Fetch කිරීම
 app.get('/api/workflow/templates', async (req, res) => {
   try {
     const templates = await WorkflowTemplate.find({}).sort({ createdAt: -1 });
@@ -693,7 +719,6 @@ app.get('/api/workflow/templates', async (req, res) => {
   }
 });
 
-// 3. Template එකක් Delete කිරීමේ Endpoint එක
 app.delete('/api/workflow/templates/:id', async (req, res) => {
   try {
     await WorkflowTemplate.findByIdAndDelete(req.params.id);
