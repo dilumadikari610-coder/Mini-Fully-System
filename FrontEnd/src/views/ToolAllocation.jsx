@@ -1,24 +1,29 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { UserCheck, Wrench, ChevronDown, Search, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { UserCheck, Wrench, ChevronDown, Search, Plus, Trash2, CheckCircle2, ShieldAlert, FileText } from 'lucide-react';
 
 const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
   const [loading, setLoading] = useState(false);
+  
+  // 💡 AUTO GENERATE ALLOCATION DOCUMENT NUMBER (පිටුව ලෝඩ් වෙද්දීම හැදෙන අංකය)
+  const [allocDocNumber, setAllocDocNumber] = useState(`ALC-${Date.now().toString().slice(-6)}`);
 
   // --- CUSTOM DROPDOWNS STATES ---
   const [isToolOpen, setIsToolOpen] = useState(false);
   const [toolSearch, setToolSearch] = useState('');
-  const [selectedTool, setSelectedTool] = useState(null);
-
+  
   const [isStaffOpen, setIsStaffOpen] = useState(false);
   const [staffSearch, setStaffSearch] = useState('');
   const [selectedStaff, setSelectedStaff] = useState(null);
 
+  // 💡 MULTI-ITEM BASKET (එකම ඩොකියුමන්ට් එකට එකතු කරන බඩු ලැයිස්තුව)
+  const [selectedItemsList, setSelectedItemsList] = useState([]);
+
   const toolRef = useRef(null);
   const staffRef = useRef(null);
 
-  // Click Outside Logic (Dropdowns වසා දැමීමට)
+  // Click Outside Logic
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (toolRef.current && !toolRef.current.contains(e.target)) setIsToolOpen(false);
@@ -28,7 +33,7 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // INVENTORY ITEMS (GRN) ඇතුළෙන් තියෙන සියලුම උපකරණ ලැයිස්තුව තනි Array එකකට සැකසීම
+  // GRN ඩේටා ඇතුළෙන් ලබාගත හැකි සියලුම උපකරණ Array එකකට සැකසීම
   const allAvailableTools = inventoryItems.flatMap(grn => 
     (grn.items || []).map(item => ({
       ...item,
@@ -37,50 +42,77 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
     }))
   );
 
-  // Filters Logic for Dropdowns
+  // Filter Dropdowns
   const filteredTools = allAvailableTools.filter(t => 
-    t.itemName?.toLowerCase().includes(toolSearch.toLowerCase()) ||
-    t.itemCode?.toLowerCase().includes(toolSearch.toLowerCase())
+    !selectedItemsList.some(added => added.itemCode === t.itemCode) && // දැනටමත් එකතු කරපු ඒවා ලැයිස්තුවෙන් ඉවත් කරයි
+    (t.itemName?.toLowerCase().includes(toolSearch.toLowerCase()) ||
+     t.itemCode?.toLowerCase().includes(toolSearch.toLowerCase()))
   );
 
   const filteredStaff = staffList.filter(s => 
     s.username?.toLowerCase().includes(staffSearch.toLowerCase())
   );
 
-  // --- SUBMIT ALLOCATION LOGIC ---
-  const handleAssignTool = async (e) => {
+  // ➕ ITEM එකක් BASKET එකට එකතු කිරීම
+  const handleAddItemToBasket = (tool) => {
+    setSelectedItemsList([...selectedItemsList, { ...tool, qty: 1 }]);
+    setIsToolOpen(false);
+    setToolSearch('');
+  };
+
+  // ➖ BASKET එකෙන් ITEM එකක් අයින් කිරීම
+  const handleRemoveItemFromBasket = (itemCode) => {
+    setSelectedItemsList(selectedItemsList.filter(item => item.itemCode !== itemCode));
+  };
+
+  // 🔢 Quantity වෙනස් කිරීමේ Logic එක
+  const handleQtyChange = (itemCode, newQty) => {
+    if (newQty < 1) return;
+    setSelectedItemsList(selectedItemsList.map(item => 
+      item.itemCode === itemCode ? { ...item, qty: parseInt(newQty) || 1 } : item
+    ));
+  };
+
+  // --- 💾 SUBMIT ENTIRE DOCUMENT ALLOCATION ---
+  const handleFinalAllocationSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedTool) return toast.error("Please select an inventory tool / item");
     if (!selectedStaff) return toast.error("Please select a maintenance staff member");
+    if (selectedItemsList.length === 0) return toast.error("Please add at least one item to the allocation document");
 
     setLoading(true);
-    const t = toast.loading("Processing Staff Tool Allocation...");
+    const t = toast.loading(`Processing Allocation Document ${allocDocNumber}...`);
 
+    // 💡 GRN Process එක වගේම මුළු ඩොකියුමන්ට් එකම එකවර Backend එකට යැවීම
     const payload = {
-      grnInvoiceCode: selectedTool.grnInvoiceCode,
-      materialCode: selectedTool.itemCode,
-      itemName: selectedTool.itemName,
+      allocationDocNo: allocDocNumber,
       staffId: selectedStaff._id,
       staffName: selectedStaff.username,
-      qty: 1
+      allocatedItems: selectedItemsList.map(item => ({
+        grnInvoiceCode: item.grnInvoiceCode,
+        materialCode: item.itemCode,
+        itemName: item.itemName,
+        qty: item.qty
+      }))
     };
 
     try {
-      await axios.patch('http://192.168.1.19:5000/api/grn/allocate', payload);
-      toast.success(`Successfully Assigned ${selectedTool.itemName} to ${selectedStaff.username}`, { id: t });
+      // ඔයාගේ Backend එකේ Multi-item allocation patch/post endpoint එක කෝල් කරයි
+      await axios.post('http://192.168.1.19:5000/api/grn/allocate-bulk', payload);
       
-      setSelectedTool(null);
+      toast.success(`Successfully Generated Document ${allocDocNumber}!`, { id: t });
+      
+      // Reset Page States
+      setSelectedItemsList([]);
       setSelectedStaff(null);
-      setToolSearch('');
       setStaffSearch('');
+      setAllocDocNumber(`ALC-${Date.now().toString().slice(-6)}`); // අලුත් අංකයක් දීම
       
       if (onRefresh) onRefresh();
     } catch (err) {
       console.error(err);
-      toast.error(err.response?.data?.message || "Failed to complete tool allocation", { id: t });
+      toast.error(err.response?.data?.message || "Bulk tool allocation failed", { id: t });
     } finally {
-      // ✅ FIXED: 'finaly' වෙනුවට නිවැරදි JavaScript වචනය වන 'finally' ලෙස සකස් කරන ලදී
-      setLoading(false);
+      setLoading(false); // 100% Fixed Code!
     }
   };
 
@@ -88,148 +120,207 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
     <div className="p-8 antialiased text-slate-700 bg-[#F8FAFC] min-h-screen flex flex-col items-center justify-start w-full select-none" style={{ fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif' }}>
       
       {/* 1. PAGE HEADER */}
-      <div className="w-full max-w-2xl mb-8 border-b border-slate-200/60 pb-4 text-left">
-        <h1 className="text-xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
-          <UserCheck size={22} className="text-slate-600" /> Staff Tool Allocation
-        </h1>
-        <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Assign Workshop Inventory to Maintenance Members</p>
+      <div className="w-full max-w-3xl mb-8 border-b border-slate-200/60 pb-4 flex justify-between items-end">
+        <div>
+          <h1 className="text-xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
+            <UserCheck size={22} className="text-slate-600" /> Bulk Stock Allocation
+          </h1>
+          <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Allocate Multiple Workshop Items under One Document</p>
+        </div>
+        {/* Document Number Tag */}
+        <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 px-3 py-1.5 rounded-xl font-mono text-xs font-bold shadow-sm">
+          <FileText size={14} /> {allocDocNumber}
+        </div>
       </div>
 
-      {/* 2. MODERN FLOATING CARD */}
-      <div className="w-full max-w-2xl bg-white border border-slate-200 p-8 rounded-[32px] shadow-xl shadow-slate-200/40 relative overflow-visible">
+      {/* 2. MAIN LAYOUT CARD */}
+      <div className="w-full max-w-3xl bg-white border border-slate-200 p-8 rounded-[32px] shadow-xl shadow-slate-200/40 space-y-6">
         
-        <form onSubmit={handleAssignTool} className="space-y-6">
-          
-          {/* STEP A: SEARCHABLE TOOL DROPDOWN */}
-          <div className="space-y-2 relative" ref={toolRef}>
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block ml-1">Select Tool / Item Description</label>
-            <div 
-              onClick={() => setIsToolOpen(!isToolOpen)}
-              className="w-full flex items-center justify-between pl-4 pr-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold text-slate-800 cursor-pointer transition-all hover:bg-white hover:border-slate-400 shadow-sm"
-            >
-              <div className="flex items-center gap-2.5">
-                <Wrench size={15} className="text-slate-400" />
-                <span className="uppercase">
-                  {selectedTool ? `[${selectedTool.itemCode}] ${selectedTool.itemName}` : "Choose item from available stock"}
-                </span>
-              </div>
-              <ChevronDown size={14} className={`transition-transform duration-200 text-slate-500 ${isToolOpen ? 'rotate-180' : ''}`} />
+        {/* STEP A: SELECT STAFF (මුලින්ම කවුද බඩු ගන්නේ කියලා තෝරමු) */}
+        <div className="space-y-2 relative" ref={staffRef}>
+          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block ml-1">1. Assign To Maintenance Staff (Custodian)</label>
+          <div 
+            onClick={() => setIsStaffOpen(!isStaffOpen)}
+            className="w-full flex items-center justify-between pl-4 pr-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold text-slate-800 cursor-pointer transition-all hover:bg-white hover:border-slate-400 shadow-sm"
+          >
+            <div className="flex items-center gap-2.5">
+              <UserCheck size={15} className="text-slate-400" />
+              <span className="uppercase text-slate-800 font-bold">
+                {selectedStaff ? selectedStaff.username : "Select Maintenance Member / Technician"}
+              </span>
             </div>
-
-            {isToolOpen && (
-              <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2 space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-150">
-                <div className="relative flex items-center border border-slate-200 bg-slate-50 rounded-xl px-3 py-2">
-                  <Search size={13} className="text-slate-400 mr-2 shrink-0" />
-                  <input 
-                    type="text"
-                    className="w-full bg-transparent border-none outline-none text-xs font-semibold text-slate-800 placeholder:text-slate-400 uppercase"
-                    placeholder="Search tool by name or code..."
-                    value={toolSearch}
-                    onChange={e => setToolSearch(e.target.value)}
-                    onClick={e => e.stopPropagation()}
-                  />
-                </div>
-                <div className="max-h-48 overflow-y-auto divide-y divide-slate-50 custom-sidebar-scroll">
-                  {filteredTools.length > 0 ? (
-                    filteredTools.map((tool, idx) => (
-                      <div 
-                        key={idx}
-                        onClick={() => {
-                          setSelectedTool(tool);
-                          setIsToolOpen(false);
-                        }}
-                        className="p-3 text-xs font-semibold uppercase text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer flex justify-between items-center rounded-xl"
-                      >
-                        <div>
-                          <span className="font-mono bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded text-[10px] mr-2 font-bold">[{tool.itemCode}]</span>
-                          {tool.itemName}
-                        </div>
-                        <span className="text-[10px] text-slate-400 font-mono">Source: {tool.grnInvoiceCode}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="p-4 text-center text-[10px] font-bold text-slate-400 uppercase tracking-wider">No matching warehouse stock found</div>
-                  )}
-                </div>
-              </div>
-            )}
+            <ChevronDown size={14} className={`transition-transform duration-200 text-slate-500 ${isStaffOpen ? 'rotate-180' : ''}`} />
           </div>
 
-          {/* STEP B: SEARCHABLE STAFF DROPDOWN */}
-          <div className="space-y-2 relative" ref={staffRef}>
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block ml-1">Assign To Maintenance Staff</label>
-            <div 
-              onClick={() => setIsStaffOpen(!isStaffOpen)}
-              className="w-full flex items-center justify-between pl-4 pr-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold text-slate-800 cursor-pointer transition-all hover:bg-white hover:border-slate-400 shadow-sm"
-            >
-              <div className="flex items-center gap-2.5">
-                <UserCheck size={15} className="text-slate-400" />
-                <span className="uppercase">
-                  {selectedStaff ? selectedStaff.username : "Select Maintenance Member"}
-                </span>
+          {isStaffOpen && (
+            <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2 space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-150">
+              <div className="relative flex items-center border border-slate-200 bg-slate-50 rounded-xl px-3 py-2">
+                <Search size={13} className="text-slate-400 mr-2 shrink-0" />
+                <input 
+                  type="text"
+                  className="w-full bg-transparent border-none outline-none text-xs font-semibold text-slate-800 placeholder:text-slate-400 uppercase"
+                  placeholder="Search staff member name..."
+                  value={staffSearch}
+                  onChange={e => setStaffSearch(e.target.value)}
+                  onClick={e => e.stopPropagation()}
+                />
               </div>
-              <ChevronDown size={14} className={`transition-transform duration-200 text-slate-500 ${isStaffOpen ? 'rotate-180' : ''}`} />
-            </div>
-
-            {isStaffOpen && (
-              <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2 space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-150">
-                <div className="relative flex items-center border border-slate-200 bg-slate-50 rounded-xl px-3 py-2">
-                  <Search size={13} className="text-slate-400 mr-2 shrink-0" />
-                  <input 
-                    type="text"
-                    className="w-full bg-transparent border-none outline-none text-xs font-semibold text-slate-800 placeholder:text-slate-400 uppercase"
-                    placeholder="Search staff member name..."
-                    value={staffSearch}
-                    onChange={e => setStaffSearch(e.target.value)}
-                    onClick={e => e.stopPropagation()}
-                  />
-                </div>
-                <div className="max-h-40 overflow-y-auto divide-y divide-slate-50 custom-sidebar-scroll">
-                  {filteredStaff.length > 0 ? (
-                    filteredStaff.map((staff) => (
-                      <div 
-                        key={staff._id}
-                        onClick={() => {
-                          setSelectedStaff(staff);
-                          setIsStaffOpen(false);
-                        }}
-                        className="p-3 text-xs font-bold uppercase text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer rounded-xl"
-                      >
-                        {staff.username}
-                      </div>
-                    ))
-                  ) : (
-                    <div className="p-4 text-center text-[10px] font-bold text-slate-400 uppercase tracking-wider">No active team members match</div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* CONFIRMATION SUMMARY CARD */}
-          {selectedTool && selectedStaff && (
-            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-start gap-3 animate-in zoom-in-95 duration-200">
-              <CheckCircle2 size={16} className="text-emerald-600 mt-0.5 shrink-0" />
-              <div className="text-xs text-emerald-800 font-semibold uppercase leading-relaxed tracking-tight">
-                Allocation Ledger Ready: Handing over custody of <span className="font-bold text-slate-900">[{selectedTool.itemCode}] {selectedTool.itemName}</span> to technician <span className="font-bold text-slate-900">{selectedStaff.username}</span>.
+              <div className="max-h-40 overflow-y-auto divide-y divide-slate-50">
+                {filteredStaff.length > 0 ? (
+                  filteredStaff.map((staff) => (
+                    <div 
+                      key={staff._id}
+                      onClick={() => {
+                        setSelectedStaff(staff);
+                        setIsStaffOpen(false);
+                      }}
+                      className="p-3 text-xs font-bold uppercase text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer rounded-xl"
+                    >
+                      {staff.username}
+                    </div>
+                  ))
+                ) : (
+                  <div className="p-4 text-center text-[10px] font-bold text-slate-400 uppercase tracking-wider">No active team members match</div>
+                )}
               </div>
             </div>
           )}
+        </div>
 
-          {/* SUBMIT INDICATOR */}
-          <button
-            type="submit"
-            disabled={loading || !selectedTool || !selectedStaff}
-            className="w-full py-3.5 bg-slate-900 text-white rounded-2xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-800 active:scale-[0.99] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 shadow-md shadow-slate-900/10 flex items-center justify-center gap-1.5"
+        {/* STEP B: SEARCH AND CHOOSE ITEMS TO ADD (GRN එක වගේ බඩු එකතු කරන කොටස) */}
+        <div className="space-y-2 relative" ref={toolRef}>
+          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block ml-1">2. Search & Add Items to Document</label>
+          <div 
+            onClick={() => setIsToolOpen(!isToolOpen)}
+            className="w-full flex items-center justify-between pl-4 pr-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold text-slate-400 cursor-pointer transition-all hover:bg-white hover:border-slate-400 shadow-sm"
           >
-            Confirm & Assign Tool
-          </button>
-        </form>
+            <div className="flex items-center gap-2.5">
+              <Wrench size={15} className="text-slate-400" />
+              <span>Click here to search and append items...</span>
+            </div>
+            <ChevronDown size={14} className={`transition-transform duration-200 text-slate-500 ${isToolOpen ? 'rotate-180' : ''}`} />
+          </div>
+
+          {isToolOpen && (
+            <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2 space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-150">
+              <div className="relative flex items-center border border-slate-200 bg-slate-50 rounded-xl px-3 py-2">
+                <Search size={13} className="text-slate-400 mr-2 shrink-0" />
+                <input 
+                  type="text"
+                  className="w-full bg-transparent border-none outline-none text-xs font-semibold text-slate-800 placeholder:text-slate-400 uppercase"
+                  placeholder="Type Code or Item Name..."
+                  value={toolSearch}
+                  onChange={e => setToolSearch(e.target.value)}
+                  onClick={e => e.stopPropagation()}
+                />
+              </div>
+              <div className="max-h-44 overflow-y-auto divide-y divide-slate-50">
+                {filteredTools.length > 0 ? (
+                  filteredTools.map((tool, idx) => (
+                    <div 
+                      key={idx}
+                      onClick={() => handleAddItemToBasket(tool)}
+                      className="p-3 text-xs font-semibold uppercase text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer flex justify-between items-center rounded-xl"
+                    >
+                      <div>
+                        <span className="font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[10px] mr-2 font-bold">[{tool.itemCode}]</span>
+                        {tool.itemName}
+                      </div>
+                      <span className="text-[10px] bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded-lg">Add +</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="p-4 text-center text-[10px] font-bold text-slate-400 uppercase tracking-wider">No items found or all items added</div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* STEP C: DYNAMIC TABLE INSIDE DOCUMENT (එකතු කරපු බඩු ටික පෙන්වන Table එක) */}
+        <div className="space-y-2 pt-2">
+          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block ml-1">
+            Document Items Basket ({selectedItemsList.length})
+          </label>
+          
+          <div className="border border-slate-200 rounded-2xl overflow-hidden bg-slate-50/50">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-100/70 border-b border-slate-200 text-[9px] font-bold text-slate-500 uppercase tracking-wider">
+                  <th className="p-3 pl-4">Item Details</th>
+                  <th className="p-3 w-32 text-center">Qty to Allocate</th>
+                  <th className="p-3 w-16 text-center">Remove</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200/60 bg-white text-xs font-semibold text-slate-700 uppercase">
+                {selectedItemsList.length > 0 ? (
+                  selectedItemsList.map((item) => (
+                    <tr key={item.itemCode} className="hover:bg-slate-50/40">
+                      {/* Item Info */}
+                      <td className="p-3 pl-4">
+                        <div className="font-bold text-slate-800">{item.itemName}</div>
+                        <div className="text-[9px] text-slate-400 font-mono mt-0.5">
+                          Code: <span className="text-blue-600 font-bold">{item.itemCode}</span> | GRN Source: {item.grnInvoiceCode}
+                        </div>
+                      </td>
+                      {/* Quantity Input */}
+                      <td className="p-3 text-center">
+                        <input 
+                          type="number"
+                          min="1"
+                          value={item.qty}
+                          onChange={(e) => handleQtyChange(item.itemCode, e.target.value)}
+                          className="w-16 text-center border border-slate-200 bg-slate-50 rounded-lg p-1 font-mono font-bold text-slate-800 outline-none focus:border-slate-400 focus:bg-white"
+                        />
+                      </td>
+                      {/* Delete action */}
+                      <td className="p-3 text-center">
+                        <button 
+                          type="button"
+                          onClick={() => handleRemoveItemFromBasket(item.itemCode)}
+                          className="text-slate-400 hover:text-red-500 transition-colors"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="3" className="p-8 text-center text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      Document basket is empty. Please search and append items above.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* STEP D: SUMMARY CARD AND ALLOCATION TRIGGER */}
+        {selectedStaff && selectedItemsList.length > 0 && (
+          <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-start gap-3 animate-in zoom-in-95 duration-150">
+            <CheckCircle2 size={16} className="text-emerald-600 mt-0.5 shrink-0" />
+            <div className="text-xs text-emerald-800 font-semibold uppercase leading-relaxed tracking-tight">
+              Ready to Save Ledger: Document <span className="font-bold text-slate-900">{allocDocNumber}</span> will transfer custody of <span className="font-bold text-slate-900">{selectedItemsList.length} distinct item(s)</span> directly to technician <span className="font-bold text-slate-900">{selectedStaff.username}</span>.
+            </div>
+          </div>
+        )}
+
+        {/* MAIN MASTER SUBMIT BUTTON */}
+        <button
+          onClick={handleFinalAllocationSubmit}
+          disabled={loading || !selectedStaff || selectedItemsList.length === 0}
+          className="w-full py-3.5 bg-slate-900 text-white rounded-2xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-800 active:scale-[0.99] transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-md flex items-center justify-center gap-1.5"
+        >
+          Save & Post Allocation Document
+        </button>
+
       </div>
 
       {/* SECURITY NOTICE FOOTER */}
-      <div className="w-full max-w-2xl mt-4 flex items-center gap-1.5 px-3 opacity-60 text-slate-400 text-[10px] font-bold uppercase tracking-wide">
-        <ShieldAlert size={12} /> Authorized Storekeeper Hand-over Authentication Protocol
+      <div className="w-full max-w-3xl mt-4 flex items-center gap-1.5 px-3 opacity-60 text-slate-400 text-[10px] font-bold uppercase tracking-wide">
+        <ShieldAlert size={12} /> Authorized Bulk Storekeeper Hand-over Authentication Protocol | MMS CORE
       </div>
     </div>
   );

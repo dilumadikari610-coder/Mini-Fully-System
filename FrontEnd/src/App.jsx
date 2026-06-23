@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { Search, Bell, Check, MailOpen, CheckSquare, Trash2, Layers } from 'lucide-react'; // ✅ FIXED: Layers අයිකනය නිවැරදිව Import කරන ලදී
+import { Search, Bell, Check, MailOpen, CheckSquare, Trash2, Layers } from 'lucide-react'; 
 import { Toaster } from 'react-hot-toast';
 import axios from 'axios';
 import toast from 'react-hot-toast';
@@ -25,6 +25,8 @@ import InventoryReport from './views/InventoryReport';
 import SettingsView from './views/SettingsView'; 
 import MaterialsRegistry from './views/MaterialsRegistry';
 import SupplierRegister from './views/SupplierRegister';
+// 💡 WORKFLOW ROUTING LINK
+import WorkflowConfiguration from './views/WorkflowConfiguration';
 
 const MainAppContent = () => {
   const { user, logout } = useApp();
@@ -105,7 +107,7 @@ const MainAppContent = () => {
     }
   };
 
-  // 🔔 6. Clear Notifications (Frontend එකෙන් පමණක් සඟවයි)
+  // 🔔 6. Clear Notifications
   const handleClearNotifications = () => {
     if (notifications.length === 0) return;
     setNotifications([]); 
@@ -189,7 +191,6 @@ const MainAppContent = () => {
 
               {/* DROP-DOWN NOTIFICATION BLOCK */}
               {isNotifOpen && (
-                // 💡 FIXED: Segoe UI Font Family එක සහ font-normal (Not Bold) තත්ත්වය තහවුරු කරන ලදී
                 <div 
                   className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 animate-in fade-in slide-in-from-top-3 duration-200 overflow-hidden font-normal"
                   style={{ fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif' }}
@@ -228,7 +229,6 @@ const MainAppContent = () => {
                             notif.isRead ? 'bg-white opacity-60' : 'bg-blue-50/40 hover:bg-blue-50/70'
                           }`}
                         >
-                          {/* 💡 FIXED: font-normal මඟින් අකුරු Bold වීම සම්පූර්ණයෙන්ම වළක්වයි */}
                           <div className="space-y-1.5 flex-1 font-normal">
                             <p className="text-slate-700 font-normal leading-relaxed uppercase tracking-tight">{notif.message}</p>
                             <p className="text-[9px] text-slate-400 font-normal flex items-center gap-1">
@@ -314,6 +314,12 @@ const MainAppContent = () => {
                   onRefresh={loadSystemData} 
                 />
               } 
+            />
+
+            {/* 💡 NEW ROUTE LINK: WORKFLOW MATRIX CONFIGURATION */}
+            <Route 
+              path="/workflow-setup" 
+              element={<WorkflowConfiguration />} 
             />
 
             <Route 

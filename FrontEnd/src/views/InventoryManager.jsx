@@ -36,15 +36,17 @@ const ModernDatePicker = ({ label, value, onChange }) => {
   };
 
   return (
-    <div className="space-y-1.5 relative w-full select-none" style={{ fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif' }}>
-      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{label}</label>
+    // 💡 FIXED: Label සහ Inputs අකුරුද text-black බවට පත් කරන ලදී
+    <div className="space-y-1.5 relative w-full select-none" style={{ fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif', fontWeight: 'normal' }}>
+      <label className="text-[10px] text-black uppercase tracking-wider block" style={{ fontWeight: 'normal' }}>{label}</label>
       
       <div 
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 outline-none cursor-pointer flex items-center justify-between hover:bg-white hover:border-slate-400 transition-all shadow-sm"
+        className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-black outline-none cursor-pointer flex items-center justify-between hover:bg-white hover:border-slate-400 transition-all shadow-sm"
+        style={{ fontWeight: 'normal' }}
       >
         <Calendar className="absolute left-3.5 text-slate-400" size={14} />
-        <span>{value ? value : "YYYY-MM-DD"}</span>
+        <span className="font-mono text-black">{value ? value : "YYYY-MM-DD"}</span>
         {value && (
           <RotateCcw 
             size={11} 
@@ -59,7 +61,7 @@ const ModernDatePicker = ({ label, value, onChange }) => {
           <div className="flex justify-between items-center mb-3">
             <button 
               type="button"
-              className="p-1 hover:bg-slate-100 rounded-lg text-slate-600 text-xs font-bold"
+              className="p-1 hover:bg-slate-100 rounded-lg text-black text-xs"
               onClick={() => {
                 if (currentMonth === 0) {
                   setCurrentMonth(11);
@@ -71,12 +73,12 @@ const ModernDatePicker = ({ label, value, onChange }) => {
             >
               &larr;
             </button>
-            <span className="text-xs font-bold text-slate-800 uppercase tracking-tight">
+            <span className="text-xs text-black uppercase tracking-tight" style={{ fontWeight: 'normal' }}>
               {months[currentMonth]} {currentYear}
             </span>
             <button 
               type="button"
-              className="p-1 hover:bg-slate-100 rounded-lg text-slate-600 text-xs font-bold"
+              className="p-1 hover:bg-slate-100 rounded-lg text-black text-xs"
               onClick={() => {
                 if (currentMonth === 11) {
                   setCurrentMonth(0);
@@ -90,11 +92,11 @@ const ModernDatePicker = ({ label, value, onChange }) => {
             </button>
           </div>
 
-          <div className="grid grid-cols-7 text-center text-[9px] font-bold text-slate-400 uppercase mb-1">
+          <div className="grid grid-cols-7 text-center text-[9px] text-slate-400 uppercase mb-1" style={{ fontWeight: 'normal' }}>
             <div>Su</div><div>Mo</div><div>Tu</div><div>We</div><div>Th</div><div>Fr</div><div>Sa</div>
           </div>
 
-          <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-slate-700">
+          <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-black">
             {Array.from({ length: firstDayIndex }).map((_, idx) => (
               <div key={`empty-${idx}`}></div>
             ))}
@@ -111,9 +113,10 @@ const ModernDatePicker = ({ label, value, onChange }) => {
                   onClick={() => handleDateClick(dayNum)}
                   className={`py-1 rounded-lg cursor-pointer transition-all ${
                     isSelected 
-                      ? 'bg-slate-950 text-white font-bold shadow-md' 
-                      : 'hover:bg-slate-100 text-slate-700 font-medium'
+                      ? 'bg-slate-900 text-white shadow-sm' 
+                      : 'hover:bg-slate-100 text-black'
                   }`}
+                  style={{ fontWeight: 'normal' }}
                 >
                   {dayNum}
                 </div>
@@ -136,7 +139,7 @@ const InventoryManager = ({ grns = [] }) => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndingDate] = useState('');
 
-  // 💡 Safe Date Parser: ඩේටාබේස් එකේ දිනය grn.date හෝ grn.receivedDate ලෙස කෙසේ තිබුණත් YYYY-MM-DD ලෙස සකසයි
+  // දිනය YYYY-MM-DD ලෙස සකසා ගැනීමට
   const formatDateSafe = (dateInput) => {
     if (!dateInput) return 'N/A';
     try {
@@ -156,11 +159,11 @@ const InventoryManager = ({ grns = [] }) => {
         <head>
           <title>MMS CORE - GRN PRINT ${grn.invoiceCode || grn.grnId}</title>
           <style>
-            body { font-family: 'Segoe UI', sans-serif; padding: 40px; color: #334155; text-transform: uppercase; }
-            .header { border-bottom: 2px solid #334155; padding-bottom: 10px; margin-bottom: 20px; }
+            body { font-family: 'Segoe UI', sans-serif; padding: 40px; color: #000000; text-transform: uppercase; }
+            .header { border-bottom: 2px solid #000000; padding-bottom: 10px; margin-bottom: 20px; }
             table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #e2e8f0; padding: 12px; text-align: left; font-size: 12px; }
-            th { background: #f8fafc; font-weight: bold; }
+            th, td { border: 1px solid #e2e8f0; padding: 12px; text-align: left; font-size: 12px; color: #000000; }
+            th { background: #f8fafc; }
           </style>
         </head>
         <body>
@@ -192,30 +195,31 @@ const InventoryManager = ({ grns = [] }) => {
     printWindow.print();
   };
 
-  // --- FILTERING LOGIC ---
-  const filteredGRNs = grns.filter(grn => {
-    const grnCode = grn.invoiceCode || grn.grnId || '';
-    const matchesGRN = grnCode.toLowerCase().includes(searchGRN.toLowerCase());
-    const matchesTool = searchToolName 
-      ? grn.items?.some(item => item.itemName?.toLowerCase().includes(searchToolName.toLowerCase()))
-      : true;
+  // GRN LOG VIEW - FLAT ITEM-WISE MAPPING
+  const allFlattenedGRNItems = grns.flatMap(g => 
+    (g.items || []).map(item => ({
+      ...item,
+      _parentGRN: g,
+      grnId: g.invoiceCode || g.grnId,
+      supplier: g.supplier || g.vendor || 'Unknown',
+      entryDate: g.date || g.receivedDate
+    }))
+  );
 
-    const grnDate = formatDateSafe(grn.date || grn.receivedDate);
-    const matchesStartDate = startDate && grnDate !== 'N/A' ? grnDate >= startDate : true;
-    const matchesEndDate = endDate && grnDate !== 'N/A' ? grnDate <= endDate : true;
+  // Filter Logic for GRN Log Tab (Item-wise)
+  const filteredGRNItems = allFlattenedGRNItems.filter(item => {
+    const matchesGRN = item.grnId?.toLowerCase().includes(searchGRN.toLowerCase());
+    const matchesTool = item.itemName?.toLowerCase().includes(searchToolName.toLowerCase());
+    
+    const itemDate = formatDateSafe(item.entryDate);
+    const matchesStartDate = startDate && itemDate !== 'N/A' ? itemDate >= startDate : true;
+    const matchesEndDate = endDate && itemDate !== 'N/A' ? itemDate <= endDate : true;
 
     return matchesGRN && matchesTool && matchesStartDate && matchesEndDate;
   });
 
-  const allStockItems = grns.flatMap(g => 
-    (g.items || []).map(item => ({ 
-      ...item, 
-      grnId: g.invoiceCode || g.grnId,
-      entryDate: g.date || g.receivedDate 
-    }))
-  );
-
-  const filteredStockItems = allStockItems.filter(item => {
+  // GENERAL STOCK VIEW FILTER LOGIC
+  const filteredStockItems = allFlattenedGRNItems.filter(item => {
     const matchesGRN = item.grnId?.toLowerCase().includes(searchGRN.toLowerCase());
     const matchesTool = item.itemName?.toLowerCase().includes(searchToolName.toLowerCase());
     
@@ -234,26 +238,29 @@ const InventoryManager = ({ grns = [] }) => {
   };
 
   return (
-    <div className="p-8 antialiased text-slate-700 select-none bg-[#F8FAFC] min-h-screen" style={{ fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif' }}>
+    // 💡 FIXED: Main root layout text color එක text-black බවට පත් කරන ලදී
+    <div className="p-8 antialiased text-black select-none bg-[#F8FAFC] min-h-screen" style={{ fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif', fontWeight: 'normal' }}>
       
       {/* --- PAGE HEADER --- */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 border-b border-slate-200/60 pb-4">
         <div>
-          <h1 className="text-xl font-bold text-slate-800 tracking-tight uppercase">Tools & Inventory</h1>
-          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Stock Management & Ledger Pipeline</p>
+          <h1 className="text-xl text-black tracking-tight uppercase" style={{ fontWeight: 'normal' }}>Tools & Inventory</h1>
+          <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-1" style={{ fontWeight: 'normal' }}>Stock Management & Ledger Pipeline</p>
         </div>
 
         {/* TAB SWITCHER */}
         <div className="flex bg-white border border-slate-200 p-1 rounded-2xl shadow-sm">
           <button 
             onClick={() => { setActiveTab('grn'); handleResetFilters(); }}
-            className={`flex items-center gap-2 px-6 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all ${activeTab === 'grn' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
+            className={`flex items-center gap-2 px-6 py-2 rounded-xl text-[10px] uppercase tracking-wider transition-all ${activeTab === 'grn' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500 hover:text-black'}`}
+            style={{ fontWeight: 'normal' }}
           >
             <ClipboardList size={14} /> GRN Log
           </button>
           <button 
             onClick={() => { setActiveTab('inventory'); handleResetFilters(); }}
-            className={`flex items-center gap-2 px-6 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all ${activeTab === 'inventory' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
+            className={`flex items-center gap-2 px-6 py-2 rounded-xl text-[10px] uppercase tracking-wider transition-all ${activeTab === 'inventory' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500 hover:text-black'}`}
+            style={{ fontWeight: 'normal' }}
           >
             <Database size={14} /> General Stock
           </button>
@@ -263,12 +270,13 @@ const InventoryManager = ({ grns = [] }) => {
       {/* --- ADVANCED LIVE CONTROLS & FILTERS SEARCH PANEL --- */}
       <div className="bg-white border border-slate-200 p-5 rounded-3xl shadow-sm mb-6 grid grid-cols-12 gap-4 items-end">
         <div className="col-span-12 md:col-span-3 space-y-1.5">
-          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Search GRN Ref</label>
+          <label className="text-[10px] text-black uppercase tracking-wider block" style={{ fontWeight: 'normal' }}>Search GRN Ref</label>
           <div className="relative flex items-center">
             <Search className="absolute left-3.5 text-slate-400" size={14} />
             <input 
               type="text"
-              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold uppercase outline-none focus:border-blue-500 focus:bg-white"
+              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs uppercase outline-none focus:border-slate-400 focus:bg-white text-black font-semibold"
+              style={{ fontWeight: 'normal' }}
               placeholder="e.g. GRN000001"
               value={searchGRN}
               onChange={e => setSearchGRN(e.target.value)}
@@ -277,12 +285,13 @@ const InventoryManager = ({ grns = [] }) => {
         </div>
 
         <div className="col-span-12 md:col-span-3 space-y-1.5">
-          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Search Tool / Item Name</label>
+          <label className="text-[10px] text-black uppercase tracking-wider block" style={{ fontWeight: 'normal' }}>Search Tool / Item Name</label>
           <div className="relative flex items-center">
             <Package className="absolute left-3.5 text-slate-400" size={14} />
             <input 
               type="text"
-              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold uppercase outline-none focus:border-blue-500 focus:bg-white"
+              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs uppercase outline-none focus:border-slate-400 focus:bg-white text-black font-semibold"
+              style={{ fontWeight: 'normal' }}
               placeholder="e.g. TETS / HAMMER"
               value={searchToolName}
               onChange={e => setSearchToolName(e.target.value)}
@@ -302,7 +311,8 @@ const InventoryManager = ({ grns = [] }) => {
         <div className="col-span-12 md:col-span-2">
           <button 
             onClick={handleResetFilters}
-            className="w-full py-2 bg-slate-100 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-bold uppercase tracking-wider hover:bg-slate-200 active:scale-95 transition-all"
+            className="w-full py-2 bg-slate-50 border border-slate-200 text-black hover:bg-slate-100 rounded-xl text-[10px] uppercase tracking-wider active:scale-95 transition-all"
+            style={{ fontWeight: 'normal' }}
           >
             Reset Filters
           </button>
@@ -311,36 +321,45 @@ const InventoryManager = ({ grns = [] }) => {
 
       {/* --- MAIN CONTENT AREA --- */}
       {activeTab === 'grn' ? (
+        /* GRN LOG TAB - ITEM WISE VIEW */
         <div className="bg-white border border-slate-200 rounded-[24px] overflow-hidden shadow-sm animate-in fade-in duration-200">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-slate-50 text-slate-500 border-b border-slate-200 text-[10px] font-bold tracking-wider uppercase">
-                <th className="px-6 py-3.5 border-r border-slate-100">GRN Reference</th>
-                <th className="px-6 py-3.5 border-r border-slate-100">Supplier / Vendor</th>
-                <th className="px-6 py-3.5 border-r border-slate-100">Entry Date</th>
-                <th className="px-6 py-3.5 border-r border-slate-100 text-center w-24">SKUs</th>
-                <th className="px-6 py-3.5 text-center w-32">Action</th>
+              {/* 💡 FIXED: Table Header text-black කරන ලදී */}
+              <tr className="bg-slate-50 border-b border-slate-200 text-[10px] text-black tracking-wider uppercase" style={{ fontWeight: 'normal' }}>
+                <th className="px-6 py-3.5 border-r border-slate-100" style={{ fontWeight: 'normal' }}>GRN Reference</th>
+                <th className="px-6 py-3.5 border-r border-slate-100" style={{ fontWeight: 'normal' }}>Supplier / Vendor</th>
+                <th className="px-6 py-3.5 border-r border-slate-100" style={{ fontWeight: 'normal' }}>Allocated Item Name</th>
+                <th className="px-6 py-3.5 border-r border-slate-100 text-center w-24" style={{ fontWeight: 'normal' }}>Qty</th>
+                <th className="px-6 py-3.5 border-r border-slate-100" style={{ fontWeight: 'normal' }}>Entry Date</th>
+                <th className="px-6 py-3.5 text-center w-32" style={{ fontWeight: 'normal' }}>Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-xs font-semibold text-slate-600 bg-white">
-              {filteredGRNs.length > 0 ? filteredGRNs.map((grn) => (
-                <tr key={grn._id} className="hover:bg-slate-50/50 transition-colors uppercase">
-                  <td className="py-4 px-6 text-blue-600 font-bold border-r border-slate-100">
-                    {grn.invoiceCode || grn.grnId}
+            {/* 💡 FIXED: Table Body අකුරු සියල්ල text-black බවට පත් කරන ලදී */}
+            <tbody className="divide-y divide-slate-100 text-xs text-black bg-white" style={{ fontWeight: 'normal' }}>
+              {filteredGRNItems.length > 0 ? filteredGRNItems.map((item, idx) => (
+                <tr key={idx} className="hover:bg-slate-50/70 transition-colors uppercase">
+                  <td className="py-4 px-6 text-blue-600 border-r border-slate-100 font-mono">
+                    {item.grnId}
                   </td>
-                  <td className="px-6 py-4 border-r border-slate-100 text-slate-800 font-bold">
-                    {grn.supplier || grn.vendor || 'Unknown'}
+                  <td className="px-6 py-4 border-r border-slate-100 text-black">
+                    {item.supplier}
                   </td>
-                  <td className="px-6 py-4 border-r border-slate-100 text-slate-600 font-bold font-mono">
-                    {formatDateSafe(grn.date || grn.receivedDate)}
+                  <td className="px-6 py-4 border-r border-slate-100 text-black">
+                    <span className="font-mono text-slate-400 text-[10px] mr-1.5">[{item.itemCode}]</span>
+                    {item.itemName}
                   </td>
-                  <td className="px-6 py-4 text-center border-r border-slate-100 font-bold text-slate-700 bg-slate-50/40">
-                    {grn.items ? grn.items.length : 0}
+                  <td className="px-6 py-4 text-center border-r border-slate-100 font-mono text-black bg-slate-50/40">
+                    {item.qty || item.quantity || 0}
+                  </td>
+                  <td className="px-6 py-4 border-r border-slate-100 text-black font-mono tracking-normal">
+                    {formatDateSafe(item.entryDate)}
                   </td>
                   <td className="px-6 py-4 text-center">
                     <button 
-                      onClick={() => handlePrintGRN(grn)}
-                      className="inline-flex items-center gap-1.5 bg-white border border-slate-200 px-3 py-1.5 rounded-xl text-[9px] font-bold uppercase tracking-widest text-slate-600 hover:bg-slate-900 hover:text-white hover:border-slate-900 transition-all shadow-sm"
+                      onClick={() => handlePrintGRN(item._parentGRN)}
+                      className="inline-flex items-center gap-1.5 bg-white border border-slate-200 px-3 py-1.5 rounded-xl text-[9px] uppercase tracking-widest text-black hover:bg-slate-900 hover:text-white hover:border-slate-900 transition-all shadow-sm"
+                      style={{ fontWeight: 'normal' }}
                     >
                       <Printer size={12} /> Print View
                     </button>
@@ -348,7 +367,7 @@ const InventoryManager = ({ grns = [] }) => {
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan="5" className="py-24 text-center text-slate-400 text-xs font-bold uppercase tracking-wider bg-slate-50/40">
+                  <td colSpan="6" className="py-24 text-center text-slate-400 text-xs uppercase tracking-wider bg-slate-50/40" style={{ fontWeight: 'normal' }}>
                     No matching GRN records available in ledger
                   </td>
                 </tr>
@@ -361,42 +380,44 @@ const InventoryManager = ({ grns = [] }) => {
         <div className="bg-white border border-slate-200 rounded-[24px] overflow-hidden shadow-sm animate-in fade-in duration-200">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-slate-50 text-slate-500 border-b border-slate-200 text-[10px] font-bold tracking-wider uppercase">
-                <th className="px-6 py-3.5 border-r border-slate-100">Material Description</th>
-                <th className="px-6 py-3.5 border-r border-slate-100 text-center w-36">Current Balance</th>
-                <th className="px-6 py-3.5 border-r border-slate-100">Cost Center Location</th>
-                <th className="px-6 py-3.5 text-center w-32">Status</th>
+              {/* 💡 FIXED: General Stock Header text-black කරන ලදී */}
+              <tr className="bg-slate-50 border-b border-slate-200 text-[10px] text-black tracking-wider uppercase" style={{ fontWeight: 'normal' }}>
+                <th className="px-6 py-3.5 border-r border-slate-100" style={{ fontWeight: 'normal' }}>Material Description</th>
+                <th className="px-6 py-3.5 border-r border-slate-100 text-center w-36 " style={{ fontWeight: 'normal' }}>Current Balance</th>
+                <th className="px-6 py-3.5 border-r border-slate-100" style={{ fontWeight: 'normal' }}>Cost Center Location</th>
+                <th className="px-6 py-3.5 text-center w-32" style={{ fontWeight: 'normal' }}>Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-xs font-semibold text-slate-600 bg-white">
+            {/* 💡 FIXED: General Stock Table Body අකුරු සියල්ල text-black බවට පත් කරන ලදී */}
+            <tbody className="divide-y divide-slate-100 text-xs text-black bg-white" style={{ fontWeight: 'normal' }}>
               {filteredStockItems.length > 0 ? filteredStockItems.map((item, idx) => (
-                <tr key={idx} className="hover:bg-slate-50/50 transition-colors uppercase">
+                <tr key={idx} className="hover:bg-slate-50/70 transition-colors uppercase">
                   <td className="px-6 py-4 border-r border-slate-100">
-                    <p className="text-sm font-bold text-slate-800 tracking-tight">
-                      <span className="text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded text-[10px] mr-2 font-bold">[{item.code || 'GEN-MAT'}]</span>
+                    <p className="text-sm text-black tracking-tight">
+                      <span className="text-blue-600 bg-blue-50/50 px-1.5 py-0.5 rounded text-[10px] mr-2 font-mono">[{item.itemCode}]</span>
                       {item.itemName}
                     </p>
-                    <p className="text-[10px] text-slate-400 font-bold mt-1 lowercase tracking-normal">Batch Identifier Source: {item.grnId}</p>
+                    <p className="text-[10px] text-slate-400 mt-1 lowercase tracking-normal">Batch Identifier Source: {item.grnId}</p>
                   </td>
-                  <td className="px-6 py-4 border-r border-slate-100 text-center bg-slate-50/40">
-                    <p className="text-sm font-black text-slate-900">{item.qty || item.quantity} <span className="text-[9px] text-slate-400 font-normal ml-0.5">PCS</span></p>
+                  <td className="px-6 py-4 border-r border-slate-100 text-center bg-slate-50/40 font-mono text-black">
+                    {item.qty || item.quantity} <span className="text-[9px] text-slate-400 ml-0.5">PCS</span>
                   </td>
-                  <td className="px-6 py-4 border-r border-slate-100 text-slate-500 font-medium">
+                  <td className="px-6 py-4 border-r border-slate-100 text-black">
                     Main Warehouse Store
                   </td>
                   <td className="px-6 py-4 text-center">
-                    <span className={`inline-block px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-widest ${
+                    <span className={`inline-block px-3 py-1 rounded-xl text-[9px] uppercase tracking-widest border ${
                       item.status === 'In Stock' 
-                      ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' 
-                      : 'bg-blue-50 text-blue-600 border border-blue-100'
-                    }`}>
+                      ? 'bg-emerald-50/60 text-emerald-600 border-emerald-100' 
+                      : 'bg-blue-50/60 text-blue-600 border-blue-100'
+                    }`} style={{ fontWeight: 'normal' }}>
                       {item.status || 'In Stock'}
                     </span>
                   </td>
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan="4" className="py-24 text-center text-slate-400 text-xs font-bold uppercase tracking-wider bg-slate-50/40">
+                  <td colSpan="4" className="py-24 text-center text-slate-400 text-xs uppercase tracking-wider bg-slate-50/40" style={{ fontWeight: 'normal' }}>
                     No inventory registry data found
                   </td>
                 </tr>
@@ -408,8 +429,8 @@ const InventoryManager = ({ grns = [] }) => {
 
       {/* FOOTER INFO */}
       <div className="mt-6 flex justify-between items-center px-2">
-        <p className="text-[9px] text-slate-400 font-semibold uppercase tracking-widest italic">Internal Inventory Ledger | MMS CORE</p>
-        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-[0.2em]">Live Data Sync</p>
+        <p className="text-[9px] text-slate-400 uppercase tracking-widest italic" style={{ fontWeight: 'normal' }}>Internal Inventory Ledger | MMS CORE</p>
+        <p className="text-[9px] text-slate-400 uppercase tracking-[0.2em]" style={{ fontWeight: 'normal' }}>Live Data Sync</p>
       </div>
     </div>
   );

@@ -12,6 +12,8 @@ const Material = require('./models/Material');
 const StaffInventory = require('./models/StaffInventory'); 
 const Notification = require('./models/Notification'); 
 const Supplier = require('./models/Supplier'); 
+// 💡 WORKFLOW ENGINE MODEL
+const WorkflowTemplate = require('./models/WorkflowTemplate'); 
 
 const app = express();
 
@@ -88,7 +90,7 @@ const generateNextTID = async () => {
   }
 };
 
-// Helper for GRN ID (GRN000001) - Fields දෙකෙන්ම උපරිම අංකය පරීක්ෂා කරයි
+// Helper for GRN ID (GRN000001)
 const generateNextGRNID = async () => {
   try {
     const lastGRN = await ToolGRN.findOne({}, { grnId: 1, invoiceCode: 1 }).sort({ _id: -1 }); 
@@ -104,7 +106,7 @@ const generateNextGRNID = async () => {
   }
 };
 
-// Invoice අංකය ගණනය කරන Helper එක - Fields දෙකෙන්ම උපරිම අංකය පරීක්ෂා කරයි
+// Invoice අංකය ගණනය කරන Helper එක
 const generateNextInvoiceCode = async () => {
   try {
     const lastGRN = await ToolGRN.findOne({}, { invoiceCode: 1, grnId: 1 }).sort({ _id: -1 }); 
@@ -121,7 +123,7 @@ const generateNextInvoiceCode = async () => {
   }
 };
 
-// Helper for Supplier ID (SPL000001) - ස්වයංක්‍රීයව Supplier අංකය සාදයි
+// Helper for Supplier ID (SPL000001)
 const generateNextSupplierID = async () => {
   try {
     const lastSupplier = await Supplier.findOne({}, { supplierId: 1 }).sort({ _id: -1 });
@@ -230,7 +232,6 @@ app.post('/api/requests', async (req, res) => {
   }
 });
 
-// // 💡 Admin විසින් Maintenance Staff කෙනෙක්ව Assign කරන Route එක (With Notification)
 app.patch('/api/requests/assign/:id', async (req, res) => {
   try {
     const { staffId, staffName } = req.body;
@@ -259,7 +260,6 @@ app.patch('/api/requests/assign/:id', async (req, res) => {
   }
 });
 
-// Staff සාමාජිකයා තමන්ගේ වැඩේ ඉවර කරලා Complete කළ විට
 app.patch('/api/requests/complete/:id', async (req, res) => {
   try {
     const updated = await Request.findByIdAndUpdate(
@@ -285,7 +285,6 @@ app.patch('/api/requests/complete/:id', async (req, res) => {
   }
 });
 
-// Admin විසින් එම Job එක Approve හෝ Reject කරන අවස්ථාව
 app.patch('/api/requests/review/:id', async (req, res) => {
   try {
     const { action } = req.body; 
@@ -456,6 +455,65 @@ app.patch('/api/grn/allocate', async (req, res) => {
   }
 });
 
+// 💡 NEW WORKFLOW METHOD: BULK MULTI-ITEM ALLOCATION PIPELINE
+// එකම ඩොකියුමන්ට් එකකින් බඩු ලැයිස්තුවක් එකවරම අනුමැතිය සහ ස්ටොක් වලට ඇතුළත් කිරීමේ API එක
+app.post('/api/grn/allocate-bulk', async (req, res) => {
+  try {
+    const { allocationDocNo, staffId, staffName, allocatedItems } = req.body;
+
+    if (!allocatedItems || allocatedItems.length === 0) {
+      return res.status(400).json({ message: "Allocation item list basket is empty" });
+    }
+
+    // සෑම අයිතමයක්ම (Item) එකින් එක වෙන් වෙන්ව Staff Inventory එකට Post කිරීම
+    const operations = allocatedItems.map(async (item) => {
+      // 1. Inventory collection එක Update කිරීම
+      await Inventory.findOneAndUpdate(
+        { grnId: item.grnInvoiceCode, code: item.materialCode },
+        { $set: { status: 'Assigned', assignedTo: staffName } }
+      );
+
+      // 2. Staff Personal Custody Ledger (StaffInventory) එකට Upsert කිරීම
+      await StaffInventory.findOneAndUpdate(
+        { userId: staffId, code: item.materialCode },
+        {
+          $set: { staffName: staffName, itemName: item.itemName, grnId: item.grnInvoiceCode },
+          $inc: { quantity: Number(item.qty) || 1 },
+          $setOnInsert: { allocatedDate: new Date() }
+        },
+        { upsert: true, new: true }
+      );
+
+      // 3. ToolGRN Embedded array එක ඇතුළේ තියෙන අයිතමයන්ගේ Statuses යාවත්කාලීන කිරීම
+      await ToolGRN.findOneAndUpdate(
+        { grnId: item.grnInvoiceCode, "items.code": item.materialCode },
+        {
+          $set: {
+            "items.$.status": "Assigned",
+            "items.$.assignedStaff": staffName
+          }
+        }
+      );
+    });
+
+    await Promise.all(operations);
+
+    // 🔔 සේවකයාට තත්‍ය කාලීන Bulk Notification එකක් යැවීම
+    const bulkNotif = new Notification({
+      userId: staffId,
+      message: `Bulk Stock Handover Verified! Document ${allocationDocNo} assigned ${allocatedItems.length} inventory tools to your custody.`,
+      type: 'ASSIGNED',
+      createdAt: new Date()
+    });
+    await bulkNotif.save();
+
+    res.status(200).json({ message: "Bulk allocation document posted successfully", allocationDocNo });
+  } catch (err) {
+    console.error("❌ Bulk Allocation Engine Error:", err);
+    res.status(500).json({ message: "Failed to process complex bulk allocation registry" });
+  }
+});
+
 app.get('/api/staff-inventory/:staffId', async (req, res) => {
   try {
     const staffStock = await StaffInventory.find({ userId: req.params.staffId }).sort({ updatedAt: -1 });
@@ -601,6 +659,47 @@ app.delete('/api/departments/:id', async (req, res) => {
     res.json({ message: "Deleted" });
   } catch (err) {
     res.status(500).json({ message: "Delete failed" });
+  }
+});
+
+// --- 💡 NEW WORKFLOW ROUTING ENGINE ENDPOINTS ---
+// 1. Template එකක් අලුතින් Create කිරීම
+app.post('/api/workflow/templates', async (req, res) => {
+  try {
+    const { code, description, permission, approvers } = req.body;
+    const existing = await WorkflowTemplate.findOne({ code: code.trim().toUpperCase() });
+    if (existing) return res.status(400).json({ message: "This Workflow Code already exists!" });
+
+    const newTemplate = new WorkflowTemplate({
+      code: code.trim().toUpperCase(),
+      description,
+      permission,
+      approvers
+    });
+    await newTemplate.save();
+    res.status(201).json(newTemplate);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to post workflow matrix template" });
+  }
+});
+
+// 2. දැනට තියෙන Templates ඔක්කොම Frontend Dropdowns වලට Fetch කිරීම
+app.get('/api/workflow/templates', async (req, res) => {
+  try {
+    const templates = await WorkflowTemplate.find({}).sort({ createdAt: -1 });
+    res.json(templates || []);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to load workflow engine templates" });
+  }
+});
+
+// 3. Template එකක් Delete කිරීමේ Endpoint එක
+app.delete('/api/workflow/templates/:id', async (req, res) => {
+  try {
+    await WorkflowTemplate.findByIdAndDelete(req.params.id);
+    res.json({ message: "Workflow Template Purged Successfully" });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to remove matrix template" });
   }
 });
 

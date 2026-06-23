@@ -14,14 +14,14 @@ import {
   FileText,
   Boxes,
   ChevronDown,
-  Truck 
+  Truck,
+  Layers // ✅ FIXED: Workflow Setup සඳහා Layers අයිකනය මෙහි තබා ගන්නා ලදී
 } from 'lucide-react';
 
 const Sidebar = ({ user, logout, onAddNew }) => {
   const systemColor = "#A47148";
   const location = useLocation();
 
-  // 💡 STATE: Settings Dropdown එක Open/Close ද කියා තීරණය කිරීමට
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // --- MAIN NAVIGATION LINKS CONFIGURATION ---
@@ -52,20 +52,19 @@ const Sidebar = ({ user, logout, onAddNew }) => {
       id: 'reports', 
       name: 'Inventory Report', 
       icon: FileText,
-      // 💡 FIXED: Admin සහ Maintenance Staff කියන භූමිකාවන් දෙකට විතරක් සීමා කිරීමට array එකක් එකතු කරන ලදී
       allowedRoles: ['Admin', 'Maintenance Staff'] 
     },
   ];
 
-  // 💡 Settings Dropdown එක ඇතුළට Supplier Registration පිටුව මුලින්ම එකතු කරන ලදී
+  // 💡 FIXED: Settings Dropdown එක ඇතුළටම "Workflow Routing Setup" එක ලස්සනට සම්බන්ධ කරන ලදී
   const settingsSubItems = [
+    { id: 'workflow-setup', name: 'Workflow Setup', icon: Layers }, 
     { id: 'supplier-register', name: 'Supplier Registration', icon: Truck }, 
     { id: 'materials', name: 'Materials Registry', icon: Boxes },
     { id: 'users', name: 'User Management', icon: Users },
     { id: 'settings', name: 'Department', icon: Settings },
   ];
 
-  // දැනට සක්‍රීය පිටුව Settings එක ඇතුළේ එකක්දැයි සෙවීම (Active Highlight එක සඳහා)
   const isSubItemActive = settingsSubItems.some(sub => location.pathname === `/${sub.id}`);
 
   return (
@@ -129,10 +128,7 @@ const Sidebar = ({ user, logout, onAddNew }) => {
 
           {/* Standard Navigation Rendering */}
           {navItems.map((item) => {
-            // 💡 1. පැරණි Admin Only සීමාවන් එලෙසම පරීක්ෂා කරයි
             if (item.adminOnly && user?.role !== 'admin') return null;
-            
-            // 💡 2. FIXED ROLE GUARD: පිටුවට අදාළව allowedRoles ලියා ඇත්නම්, යූසර්ගේ userType එක (Admin හෝ Maintenance Staff) ඒ ඇතුළේ තියෙනවාද කියා බලයි. නැත්නම් සඟවයි!
             if (item.allowedRoles && !item.allowedRoles.includes(user?.userType)) return null;
             
             return (
@@ -205,7 +201,7 @@ const Sidebar = ({ user, logout, onAddNew }) => {
               {/* Sub-items Grid Container (Smooth Slide Accordion) */}
               <div 
                 className={`transition-all duration-300 ease-in-out overflow-hidden space-y-1 pl-4 ${
-                  isSettingsOpen ? 'max-h-56 opacity-100 mt-1' : 'max-h-0 opacity-0 pointer-events-none'
+                  isSettingsOpen ? 'max-h-60 opacity-100 mt-1' : 'max-h-0 opacity-0 pointer-events-none'
                 }`}
               >
                 {settingsSubItems.map((sub) => (
