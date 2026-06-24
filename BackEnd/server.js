@@ -109,7 +109,6 @@ const generateNextGRNID = async () => {
   }
 };
 
-// Invoice අංකය ගණනය කරන Helper එක
 const generateNextInvoiceCode = async () => {
   try {
     const lastGRN = await ToolGRN.findOne({}, { invoiceCode: 1, grnId: 1 }).sort({ _id: -1 }); 
@@ -163,11 +162,17 @@ app.post('/api/users/login', async (req, res) => {
 
 app.post('/api/users/register', async (req, res) => {
   try {
-    const { username, password, userType, department } = req.body;
+    const { username, password, userType, department, permissionMatrix } = req.body;
     const existingUser = await User.findOne({ username });
     if (existingUser) return res.status(400).json({ message: "Username already exists" });
 
-    const newUser = new User({ username, password, userType, department });
+    const newUser = new User({ 
+      username, 
+      password, 
+      userType, 
+      department,
+      permissionMatrix: permissionMatrix || {}
+    });
     await newUser.save();
     res.status(201).json({ message: "User registered successfully" });
   } catch (err) {
@@ -204,6 +209,34 @@ app.get('/api/users/staff', async (req, res) => {
     res.json(staff);
   } catch (err) {
     res.status(500).json({ message: "Error fetching staff" });
+  }
+});
+
+// 💡 NEW ROUTE: EXISTING USER PERMISSION MATRIX UPDATE ENDPOINT
+app.patch('/api/users/update-permissions/:id', async (req, res) => {
+  try {
+    const { userType, department, permissionMatrix } = req.body;
+    
+    const updatedUser = await User.findByIdAndUpdate(
+      req.params.id,
+      { 
+        $set: { 
+          userType, 
+          department, 
+          permissionMatrix 
+        } 
+      },
+      { new: true }
+    );
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: "User profile context not discovered" });
+    }
+
+    res.json({ message: "User security matrix clearance tokens updated successfully!" });
+  } catch (err) {
+    console.error("❌ Permission Matrix Update Error:", err);
+    res.status(500).json({ message: "Failed to finalize encryption matrix update" });
   }
 });
 
@@ -376,7 +409,7 @@ app.get('/api/inventory', async (req, res) => {
   }
 });
 
-// DYNAMIC WORKFLOW CONFIGURATION INTEGRATED GRN POST ROUTE
+// 💡 DYNAMIC WORKFLOW CONFIGURATION INTEGRATED GRN POST ROUTE
 app.post('/api/grn', async (req, res) => {
   try {
     const incomingCode = req.body.invoiceCode || await generateNextInvoiceCode();
@@ -388,7 +421,10 @@ app.post('/api/grn', async (req, res) => {
     let currentApprovalLevel = 0;
 
     if (workflowTemplateCode) {
-      const template = await WorkflowTemplate.findOne({ code: workflowTemplateCode });
+      const template = await WorkflowTemplate.findOne({ 
+        code: { $regex: new RegExp(`^${workflowTemplateCode.trim()}$`, 'i') } 
+      });
+      
       if (template && template.approvers.length > 0) {
         initialStatus = 'PENDING_APPROVAL';
         assignedApproversChain = template.approvers;
@@ -724,89 +760,6 @@ app.delete('/api/workflow/templates/:id', async (req, res) => {
     res.json({ message: "Workflow Template Purged Successfully" });
   } catch (err) {
     res.status(500).json({ message: "Failed to remove matrix template" });
-  }
-});
-
-// 💡 NEW WORKFLOW METHOD: APPROVER REVIEW & AUTHORIZATION ENGINE
-app.patch('/api/grn/review/:id', async (req, res) => {
-  try {
-    const grnId = req.params.id;
-    const { action, username, rejectionComment } = req.body; 
-
-    const grn = await ToolGRN.findById(grnId);
-    if (!grn) return res.status(404).json({ message: "GRN record not found" });
-
-    if (grn.status !== 'PENDING_APPROVAL') {
-      return res.status(400).json({ message: "This GRN has already been processed" });
-    }
-
-    // Reject කළහොත් - GRN තත්ත්වය REJECTED (Draft) බවට පත් වී සැබෑ ස්ටොක් එකට ඇතුළත් නොවේ
-    if (action === 'REJECT') {
-      grn.status = 'REJECTED'; 
-      grn.rejectionComment = rejectionComment || 'No comment provided';
-      await grn.save();
-
-      const rejectNotif = new Notification({
-        userId: grn.submittedBy || mongoose.Types.ObjectId(), 
-        message: `Attention! GRN ${grn.invoiceCode} was REJECTED by ${username}. Status changed to Draft. Reason: ${rejectionComment}`,
-        type: 'REJECTED',
-        createdAt: new Date()
-      });
-      await rejectNotif.save();
-
-      return res.json({ message: "GRN rejected back to draft successfully", status: "REJECTED" });
-    }
-
-    // Approve කළහොත් සිදුවන Chain Routing සහ Inventory Posting ලොජික් එක
-    if (action === 'APPROVE') {
-      const currentLevel = grn.currentApprovalLevel;
-      const totalLevels = grn.approversChain?.length || 0;
-
-      if (currentLevel < totalLevels) {
-        grn.currentApprovalLevel = currentLevel + 1;
-        await grn.save();
-
-        const nextApprover = grn.approversChain.find(appr => appr.orderLevel === (currentLevel + 1));
-        if (nextApprover) {
-          const nextNotif = new Notification({
-            userId: nextApprover.user,
-            message: `GRN ${grn.invoiceCode} requires your Level-${currentLevel + 1} Authorization.`,
-            type: 'COMPLETED',
-            createdAt: new Date()
-          });
-          await nextNotif.save();
-        }
-
-        return res.json({ message: `Level-${currentLevel} approved successfully. Routed to next tier.`, status: "PENDING_APPROVAL" });
-      } else {
-        // අවසාන අනුමැතිය ලැබුණු විට - සැබෑ Stock (Inventory) එක යාවත්කාලීන වේ
-        grn.status = 'APPROVED';
-        await grn.save();
-
-        if (grn.items && grn.items.length > 0) {
-          const inventoryEntries = grn.items.map(item => {
-            return {
-              code: item.code || "GEN-MAT", 
-              itemName: item.itemName || item.itemDescription || "UNKNOWN ITEM",
-              grnId: grn.invoiceCode || grn.grnId,
-              grnObjectId: grn._id,
-              cost: Number(item.cost || item.price || 0),
-              quantity: Number(item.qty || item.quantity || 1), 
-              status: 'In Stock',
-              supplier: grn.supplier || grn.vendor || "NOT SPECIFIED"
-            };
-          });
-          
-          await Inventory.insertMany(inventoryEntries);
-        }
-
-        return res.json({ message: "GRN fully approved and posted to stock registry database!", status: "APPROVED" });
-      }
-    }
-
-  } catch (err) {
-    console.error("❌ Review API Error:", err);
-    res.status(500).json({ message: "Approval process transaction execution failed" });
   }
 });
 
