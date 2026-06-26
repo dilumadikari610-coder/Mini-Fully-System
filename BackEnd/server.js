@@ -15,7 +15,7 @@ const Supplier = require('./models/Supplier');
 // WORKFLOW ENGINE MODEL
 const WorkflowTemplate = require('./models/WorkflowTemplate'); 
 
-const app = express();
+const app = Web = express();
 
 // --- MIDDLEWARE ---
 app.use(cors());
@@ -212,7 +212,6 @@ app.get('/api/users/staff', async (req, res) => {
   }
 });
 
-// 💡 NEW ROUTE: EXISTING USER PERMISSION MATRIX UPDATE ENDPOINT
 app.patch('/api/users/update-permissions/:id', async (req, res) => {
   try {
     const { userType, department, permissionMatrix } = req.body;
@@ -524,7 +523,7 @@ app.patch('/api/grn/allocate', async (req, res) => {
   }
 });
 
-// NEW WORKFLOW METHOD: BULK MULTI-ITEM ALLOCATION PIPELINE
+// 💡 FIXED & VALIDATED WORKFLOW METHOD: BULK MULTI-ITEM ALLOCATION PIPELINE
 app.post('/api/grn/allocate-bulk', async (req, res) => {
   try {
     const { allocationDocNo, staffId, staffName, allocatedItems } = req.body;
@@ -533,17 +532,37 @@ app.post('/api/grn/allocate-bulk', async (req, res) => {
       return res.status(400).json({ message: "Allocation item list basket is empty" });
     }
 
+    // --- 🔍 FIRST PASS: VALIDATE ALL ITEM STOCK QUANTITIES ---
+    for (const item of allocatedItems) {
+      const dbItem = await Inventory.findOne({ grnId: item.grnInvoiceCode, code: item.materialCode });
+      
+      if (!dbItem) {
+        return res.status(404).json({ message: `Material [${item.materialCode}] not found in GRN ${item.grnInvoiceCode}` });
+      }
+
+      // දැනට ඉතිරිව තියෙන ප්‍රමාණයට වඩා වැඩි ගාණක් ඉල්ලනවා නම් මෙතනින්ම බ්ලොක් කරනවා
+      if (Number(item.qty) > Number(dbItem.quantity)) {
+        return res.status(400).json({ 
+          message: `Validation Error: Imbalance stock for ${item.itemName}. Available: ${dbItem.quantity}, Requested: ${item.qty}` 
+        });
+      }
+    }
+
+    // --- 💾 SECOND PASS: EXECUTE ALLOCATION PIPELINE IF VALIDATION PASSES ---
     const operations = allocatedItems.map(async (item) => {
       await Inventory.findOneAndUpdate(
         { grnId: item.grnInvoiceCode, code: item.materialCode },
-        { $set: { status: 'Assigned', assignedTo: staffName } }
+        { 
+          $set: { status: 'Assigned', assignedTo: staffName },
+          $inc: { quantity: -Number(item.qty) } 
+        }
       );
 
       await StaffInventory.findOneAndUpdate(
         { userId: staffId, code: item.materialCode },
         {
           $set: { staffName: staffName, itemName: item.itemName, grnId: item.grnInvoiceCode },
-          $inc: { quantity: Number(item.qty) || 1 },
+          $inc: { quantity: Number(item.qty) },
           $setOnInsert: { allocatedDate: new Date() }
         },
         { upsert: true, new: true }
@@ -760,6 +779,86 @@ app.delete('/api/workflow/templates/:id', async (req, res) => {
     res.json({ message: "Workflow Template Purged Successfully" });
   } catch (err) {
     res.status(500).json({ message: "Failed to remove matrix template" });
+  }
+});
+
+// 💡 NEW WORKFLOW METHOD: APPROVER REVIEW & AUTHORIZATION ENGINE
+app.patch('/api/grn/review/:id', async (req, res) => {
+  try {
+    const grnId = req.params.id;
+    const { action, username, rejectionComment } = req.body; 
+
+    const grn = await ToolGRN.findById(grnId);
+    if (!grn) return res.status(404).json({ message: "GRN record not found" });
+
+    if (grn.status !== 'PENDING_APPROVAL') {
+      return res.status(400).json({ message: "This GRN has already been processed" });
+    }
+
+    if (action === 'REJECT') {
+      grn.status = 'REJECTED'; 
+      grn.rejectionComment = rejectionComment || 'No comment provided';
+      await grn.save();
+
+      const rejectNotif = new Notification({
+        userId: grn.submittedBy || mongoose.Types.ObjectId(), 
+        message: `Attention! GRN ${grn.invoiceCode} was REJECTED by ${username}. Status changed to Draft. Reason: ${rejectionComment}`,
+        type: 'REJECTED',
+        createdAt: new Date()
+      });
+      await rejectNotif.save();
+
+      return res.json({ message: "GRN rejected back to draft successfully", status: "REJECTED" });
+    }
+
+    if (action === 'APPROVE') {
+      const currentLevel = grn.currentApprovalLevel;
+      const totalLevels = grn.approversChain?.length || 0;
+
+      if (currentLevel < totalLevels) {
+        grn.currentApprovalLevel = currentLevel + 1;
+        await grn.save();
+
+        const nextApprover = grn.approversChain.find(appr => appr.orderLevel === (currentLevel + 1));
+        if (nextApprover) {
+          const nextNotif = new Notification({
+            userId: nextApprover.user,
+            message: `GRN ${grn.invoiceCode} requires your Level-${currentLevel + 1} Authorization.`,
+            type: 'COMPLETED',
+            createdAt: new Date()
+          });
+          await nextNotif.save();
+        }
+
+        return res.json({ message: `Level-${currentLevel} approved successfully. Routed to next tier.`, status: "PENDING_APPROVAL" });
+      } else {
+        grn.status = 'APPROVED';
+        await grn.save();
+
+        if (grn.items && grn.items.length > 0) {
+          const inventoryEntries = grn.items.map(item => {
+            return {
+              code: item.code || "GEN-MAT", 
+              itemName: item.itemName || item.itemDescription || "UNKNOWN ITEM",
+              grnId: grn.invoiceCode || grn.grnId,
+              grnObjectId: grn._id,
+              cost: Number(item.cost || item.price || 0),
+              quantity: Number(item.qty || item.quantity || 1), 
+              status: 'In Stock',
+              supplier: grn.supplier || grn.vendor || "NOT SPECIFIED"
+            };
+          });
+          
+          await Inventory.insertMany(inventoryEntries);
+        }
+
+        return res.json({ message: "GRN fully approved and posted to stock registry database!", status: "APPROVED" });
+      }
+    }
+
+  } catch (err) {
+    console.error("❌ Review API Error:", err);
+    res.status(500).json({ message: "Approval process transaction execution failed" });
   }
 });
 

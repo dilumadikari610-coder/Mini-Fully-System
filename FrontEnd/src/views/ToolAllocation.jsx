@@ -38,7 +38,9 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
     (grn.items || []).map(item => ({
       ...item,
       itemCode: item.code || item.materialCode || item.itemCode || 'GEN-MAT',
-      grnInvoiceCode: grn.invoiceCode || grn.grnId
+      grnInvoiceCode: grn.invoiceCode || grn.grnId,
+      // 💡 FIXED: ඩේටාබේස් එකේ පවතින සැබෑ උපරිම ප්‍රමාණය වෙන වෙනම හඳුනාගැනීම
+      maxAvailableQty: Number(item.qty || item.quantity || 0) 
     }))
   );
 
@@ -67,10 +69,19 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
 
   // 🔢 Quantity වෙනස් කිරීමේ Logic එක
   const handleQtyChange = (itemCode, newQty) => {
-    if (newQty < 1) return;
-    setSelectedItemsList(selectedItemsList.map(item => 
-      item.itemCode === itemCode ? { ...item, qty: parseInt(newQty) || 1 } : item
-    ));
+    const parsedQty = parseInt(newQty);
+    
+    setSelectedItemsList(selectedItemsList.map(item => {
+      if (item.itemCode === itemCode) {
+        // 💡 LIVE INPUT VALIDATION: යූසර් කෝඩ් එකෙන් හෝ ඇරෝස් වලින් උපරිම සීමාව පැන්නොත් එය උපරිමයටම සීමා කර වෝනින් එකක් දෙයි
+        if (parsedQty > item.maxAvailableQty) {
+          toast.error(`Cannot exceed maximum available GRN stock! (Max: ${item.maxAvailableQty})`);
+          return { ...item, qty: item.maxAvailableQty };
+        }
+        return { ...item, qty: parsedQty || 1 };
+      }
+      return item;
+    }));
   };
 
   // --- 💾 SUBMIT ENTIRE DOCUMENT ALLOCATION ---
@@ -78,6 +89,12 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
     e.preventDefault();
     if (!selectedStaff) return toast.error("Please select a maintenance staff member");
     if (selectedItemsList.length === 0) return toast.error("Please add at least one item to the allocation document");
+
+    // 💡 SUBMIT TIME VALIDATION: සේව් කිරීමට පෙර නැවත වරක් සියලුම අයිතමයන්හි සීමාවන් පරික්ෂා කිරීම
+    const hasOverAllocatedItem = selectedItemsList.some(item => Number(item.qty) > Number(item.maxAvailableQty));
+    if (hasOverAllocatedItem) {
+      return toast.error("Validation failed! Some items in the basket exceed the maximum available stock.");
+    }
 
     setLoading(true);
     const t = toast.loading(`Processing Allocation Document ${allocDocNumber}...`);
@@ -112,7 +129,7 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
       console.error(err);
       toast.error(err.response?.data?.message || "Bulk tool allocation failed", { id: t });
     } finally {
-      setLoading(false); // 100% Fixed Code!
+      setLoading(false); 
     }
   };
 
@@ -136,7 +153,7 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
       {/* 2. MAIN LAYOUT CARD */}
       <div className="w-full max-w-3xl bg-white border border-slate-200 p-8 rounded-[32px] shadow-xl shadow-slate-200/40 space-y-6">
         
-        {/* STEP A: SELECT STAFF (මුලින්ම කවුද බඩු ගන්නේ කියලා තෝරමු) */}
+        {/* STEP A: SELECT STAFF */}
         <div className="space-y-2 relative" ref={staffRef}>
           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block ml-1">1. Assign To Maintenance Staff (Custodian)</label>
           <div 
@@ -187,7 +204,7 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
           )}
         </div>
 
-        {/* STEP B: SEARCH AND CHOOSE ITEMS TO ADD (GRN එක වගේ බඩු එකතු කරන කොටස) */}
+        {/* STEP B: SEARCH AND CHOOSE ITEMS TO ADD */}
         <div className="space-y-2 relative" ref={toolRef}>
           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block ml-1">2. Search & Add Items to Document</label>
           <div 
@@ -225,6 +242,8 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
                       <div>
                         <span className="font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[10px] mr-2 font-bold">[{tool.itemCode}]</span>
                         {tool.itemName}
+                        {/* 💡 Dropdown එක ඇතුළේදීම දැනට තිබෙන සැබෑ උපරිම ශේෂය පෙන්වීම */}
+                        <span className="text-[10px] text-slate-400 ml-2 lowercase tracking-normal">({tool.maxAvailableQty} in stock)</span>
                       </div>
                       <span className="text-[10px] bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded-lg">Add +</span>
                     </div>
@@ -237,7 +256,7 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
           )}
         </div>
 
-        {/* STEP C: DYNAMIC TABLE INSIDE DOCUMENT (එකතු කරපු බඩු ටික පෙන්වන Table එක) */}
+        {/* STEP C: DYNAMIC TABLE INSIDE DOCUMENT */}
         <div className="space-y-2 pt-2">
           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block ml-1">
             Document Items Basket ({selectedItemsList.length})
@@ -248,7 +267,7 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
               <thead>
                 <tr className="bg-slate-100/70 border-b border-slate-200 text-[9px] font-bold text-slate-500 uppercase tracking-wider">
                   <th className="p-3 pl-4">Item Details</th>
-                  <th className="p-3 w-32 text-center">Qty to Allocate</th>
+                  <th className="p-3 w-36 text-center">Qty to Allocate</th>
                   <th className="p-3 w-16 text-center">Remove</th>
                 </tr>
               </thead>
@@ -256,24 +275,25 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
                 {selectedItemsList.length > 0 ? (
                   selectedItemsList.map((item) => (
                     <tr key={item.itemCode} className="hover:bg-slate-50/40">
-                      {/* Item Info */}
                       <td className="p-3 pl-4">
                         <div className="font-bold text-slate-800">{item.itemName}</div>
                         <div className="text-[9px] text-slate-400 font-mono mt-0.5">
                           Code: <span className="text-blue-600 font-bold">{item.itemCode}</span> | GRN Source: {item.grnInvoiceCode}
                         </div>
                       </td>
-                      {/* Quantity Input */}
-                      <td className="p-3 text-center">
+                      <td className="p-3 text-center flex flex-col items-center justify-center">
                         <input 
                           type="number"
                           min="1"
+                          // 💡 FIXED: උපරිම සීමාව GRN Stock එකටම සීමා කර ලොක් කිරීම
+                          max={item.maxAvailableQty} 
                           value={item.qty}
                           onChange={(e) => handleQtyChange(item.itemCode, e.target.value)}
                           className="w-16 text-center border border-slate-200 bg-slate-50 rounded-lg p-1 font-mono font-bold text-slate-800 outline-none focus:border-slate-400 focus:bg-white"
                         />
+                        {/* 💡 ඉන්පුට් එකට පහළින් කුඩාවට Max Qty එක පෙන්වීම */}
+                        <div className="text-[9px] text-slate-400 tracking-tight lowercase mt-0.5 font-mono">max: {item.maxAvailableQty} items</div>
                       </td>
-                      {/* Delete action */}
                       <td className="p-3 text-center">
                         <button 
                           type="button"
