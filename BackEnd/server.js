@@ -15,7 +15,8 @@ const Supplier = require('./models/Supplier');
 // WORKFLOW ENGINE MODEL
 const WorkflowTemplate = require('./models/WorkflowTemplate'); 
 
-const app = Web = express();
+// 💡 FIXED: app Variable සින්ටැක්ස් එක නිවැරදි කරන ලදී
+const app = express();
 
 // --- MIDDLEWARE ---
 app.use(cors());
@@ -23,11 +24,12 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // --- DATABASE CONNECTION & AUTOMATIC INDEX RESET LOGIC ---
+// 💡 FIXED: සර්වර් එක ඔන් වෙද්දී දත්ත මකා දමන dropCollection ලොජික් එක සම්පූර්ණයෙන්ම ඉවත් කරන ලදී
 mongoose.connect('mongodb://localhost:27017/mms_db')
   .then(() => {
-    console.log('✅ Connected to MongoDB (mms_db)');
+    console.log('✅ Connected to MongoDB securely (mms_db)');
     
-    // Core database safe initializations
+    // Core database safe initializations (Indexes පමණක් ආරක්ෂිතව සින්ක් කරයි)
     if (mongoose.connection.models['Inventory']) {
       mongoose.connection.models['Inventory'].syncIndexes()
         .then(() => console.log('🔄 Inventory Database Indexes Synced Successfully.'))
@@ -39,17 +41,6 @@ mongoose.connect('mongodb://localhost:27017/mms_db')
         .then(() => console.log('🔄 StaffInventory Database Indexes Synced Successfully.'))
         .catch(() => {});
     }
-
-    mongoose.connection.db.listCollections().toArray()
-      .then(collections => {
-        const deptExists = collections.some(col => col.name === 'departments');
-        if (deptExists) {
-          mongoose.connection.db.dropCollection('departments')
-            .then(() => console.log('🗑️ Cleared stale unique indexes by dropping departments collection.'))
-            .catch(() => {});
-        }
-      })
-      .catch(() => {});
 
     // Trigger Admin Auto-seed rotation without top-level await
     seedDefaultAdmin();
@@ -385,7 +376,6 @@ app.get('/api/grn', async (req, res) => {
     const grns = await ToolGRN.find({}).sort({ createdAt: -1 });
     res.status(200).json(grns || []);
   } catch (err) {
-    console.error("❌ Fetch GRN Server Error:", err);
     res.status(200).json([]); 
   }
 });
@@ -482,14 +472,17 @@ app.post('/api/grn', async (req, res) => {
   }
 });
 
+// 💡 FIXED METHOD: QUANTITY DEDUCTION MATRIX COMPILABLE
 app.patch('/api/grn/allocate', async (req, res) => {
   try {
-    const { grnObjectId, itemObjectId, staffName, staffId, itemName } = req.body;
+    const { grnObjectId, itemObjectId, staffName, staffId, itemName, quantity } = req.body;
     const targetItemName = itemName || req.body.itemName;
+
+    const allocQty = quantity ? Number(quantity) : 1;
 
     const inventoryItem = await Inventory.findOneAndUpdate(
       { grnObjectId: grnObjectId, itemName: targetItemName }, 
-      { status: 'Assigned', assignedTo: staffName },
+      { $set: { status: 'Assigned', assignedTo: staffName } },
       { new: true }
     );
 
@@ -498,7 +491,7 @@ app.patch('/api/grn/allocate', async (req, res) => {
         { userId: staffId, code: inventoryItem.code || "GEN-MAT" },
         {
           $set: { staffName: staffName, itemName: inventoryItem.itemName },
-          $inc: { quantity: inventoryItem.quantity || 1 }, 
+          $inc: { quantity: allocQty }, 
           $setOnInsert: { grnId: inventoryItem.grnId || "N/A", allocatedDate: new Date() }
         },
         { upsert: true, new: true }
@@ -540,7 +533,6 @@ app.post('/api/grn/allocate-bulk', async (req, res) => {
         return res.status(404).json({ message: `Material [${item.materialCode}] not found in GRN ${item.grnInvoiceCode}` });
       }
 
-      // දැනට ඉතිරිව තියෙන ප්‍රමාණයට වඩා වැඩි ගාණක් ඉල්ලනවා නම් මෙතනින්ම බ්ලොක් කරනවා
       if (Number(item.qty) > Number(dbItem.quantity)) {
         return res.status(400).json({ 
           message: `Validation Error: Imbalance stock for ${item.itemName}. Available: ${dbItem.quantity}, Requested: ${item.qty}` 
@@ -744,7 +736,7 @@ app.delete('/api/departments/:id', async (req, res) => {
   }
 });
 
-// --- NEW WORKFLOW ROUTING ENGINE ENDPOINTS ---
+// --- WORKFLOW TEMPLATE ROUTES ---
 app.post('/api/workflow/templates', async (req, res) => {
   try {
     const { code, description, permission, approvers } = req.body;
@@ -782,7 +774,7 @@ app.delete('/api/workflow/templates/:id', async (req, res) => {
   }
 });
 
-// 💡 NEW WORKFLOW METHOD: APPROVER REVIEW & AUTHORIZATION ENGINE
+// 💡 APPROVER REVIEW & AUTHORIZATION ENGINE
 app.patch('/api/grn/review/:id', async (req, res) => {
   try {
     const grnId = req.params.id;
