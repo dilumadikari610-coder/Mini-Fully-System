@@ -115,19 +115,13 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
     const t = toast.loading(`${toastLabel} ${allocDocNumber}...`);
 
     try {
-      // 💡 FIXED DISPATCH WORKFLOW:
-      // ඔයාගේ සර්වර් එකේ තියෙන පරණ ලොජික් එක ඇතුළේ සිදුවන `$inc: { quantity: inventoryItem.quantity }` කියන දෝෂය මඟහැරවීමට,
-      // අපි සර්වර් එකට දත්ත යවන්න කලින්, සර්වර් එක ඩේටාබේස් එකෙන් සොයාගන්නා Inventory Object එකේ quantity එක, 
-      // යූසර් ටයිප් කරපු සැබෑ ප්‍රමාණයට සමාන වන පරිදි සකසා එකින් එක Patch කරනු ලබනවා.
       const allocationPromises = selectedItemsList.map(item => {
         const payload = {
           grnObjectId: item.grnObjectId,
           itemObjectId: item.itemObjectId,
           staffId: selectedStaffId,
           staffName: currentSelectedStaff ? currentSelectedStaff.username : "UNKNOWN_STAFF",
-          // 💡 සර්වර් එකේ Inventory findOne එක හරියටම මැච් වෙන්න 'itemName' එක නූලටම යවයි
           itemName: item.itemName, 
-          // 💡 සර්වර් එකේ වැරදි ඩේටා ටයිප් Increment බග එක පාලනය කිරීමට සැබෑ ප්‍රමාණය කෙලින්ම යවයි
           quantity: Number(item.qty) 
         };
         
@@ -136,7 +130,6 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
 
       await Promise.all(allocationPromises);
 
-      // සජීවීව ෆ්‍රන්ට්එන්ඩ් එකෙන් ප්‍රමාණයන් අඩු කිරීමේ Tracker එක යාවත්කාලීන කිරීම
       const updatedTracker = { ...allocatedQuantitiesTracker };
       selectedItemsList.forEach(item => {
         const uniqueTrackerKey = `${item.grnInvoiceCode}_${item.itemCode}`;
@@ -150,7 +143,6 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
 
       toast.success(`Successfully Logged Transaction Document: ${allocDocNumber}!`, { id: t });
       
-      // Reset Page Layout
       setSelectedItemsList([]);
       setSelectedStaffId('');
       setAllocDocNumber(transactionType === 'ISSUE_TO_STAFF' ? `STN-${Date.now().toString().slice(-6)}` : `RTN-${Date.now().toString().slice(-6)}`); 
@@ -165,19 +157,19 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
   };
 
   return (
-    <div className="p-8 antialiased text-black bg-[#EFEFEF] min-h-screen flex flex-col items-center justify-start w-full select-none" style={{ fontFamily: 'Segoe UI, Open Sans, Tahoma, Geneva, Verdana, sans-serif', fontWeight: 'normal', letterSpacing: '0.02em' }}>
+    <div className="p-8 antialiased text-slate-900 bg-[#EFEFEF] min-h-screen flex flex-col items-center justify-start w-full select-none" style={{ fontFamily: 'Segoe UI, Open Sans, Tahoma, Geneva, Verdana, sans-serif', fontWeight: 'normal', letterSpacing: '0.02em' }}>
       
       {/* 1. ERP HUB PAGE HEADER */}
       <div className="w-full max-w-5xl mb-8 border-b border-slate-300 pb-4 flex justify-between items-end">
         <div className="text-left">
-          <h1 className="text-xl text-black tracking-wide" style={{ fontWeight: 'normal' }}>
+          <h1 className="text-xl text-slate-900 tracking-wide font-semibold">
             Workshop Stock Allocation & Return Hub
           </h1>
-          <p className="text-xs text-slate-500 tracking-wider mt-1 uppercase" style={{ fontWeight: 'normal' }}>Dynamically Handover Material Balances or Process Custody Return Notes</p>
+          <p className="text-xs text-slate-500 tracking-wide mt-1" style={{ fontWeight: 'normal' }}>Dynamically Handover Material Balances or Process Custody Return Notes</p>
         </div>
         
-        <div className="bg-white border border-slate-300 text-black px-4 py-1.5 rounded-lg text-xs font-mono shadow-sm">
-          DOC REF: <span className="text-blue-600 font-bold tracking-wider">{allocDocNumber}</span>
+        <div className="bg-white border border-slate-300 text-slate-800 px-4 py-1.5 rounded-lg text-xs font-mono shadow-sm font-semibold">
+          Doc Ref: <span className="text-blue-600 font-bold tracking-wider">{allocDocNumber}</span>
         </div>
       </div>
 
@@ -187,22 +179,23 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
         {/* LEFT PANEL */}
         <div className="col-span-12 lg:col-span-5 bg-white border border-slate-200 p-6 rounded-[24px] space-y-6 text-left shadow-sm">
           
-          <div className="space-y-1.5">
-            <label className="text-[10px] text-slate-500 uppercase tracking-wider block font-sans">Select Inventory Movement Direction</label>
-            <div className="grid grid-cols-2 gap-2 bg-slate-50 p-1.5 border border-slate-200 rounded-xl">
+          <div className="space-y-2">
+            {/* 💡 FIXED Labels: කැපිටල් ඉවත් කර තද වර්ණය ලබා දී ඇත */}
+            <label className="text-xs text-slate-800 font-semibold tracking-wide block">Select Inventory Movement Direction</label>
+            <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 border border-slate-200 rounded-xl">
               <button
                 type="button"
                 onClick={() => handleTransactionTypeSwitch('ISSUE_TO_STAFF')}
-                className={`py-2.5 text-[10px] uppercase tracking-wider rounded-lg transition-all font-sans ${transactionType === 'ISSUE_TO_STAFF' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200/50'}`}
+                className={`py-2.5 text-xs font-medium rounded-lg transition-all ${transactionType === 'ISSUE_TO_STAFF' ? 'bg-white text-slate-900 font-semibold shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
               >
-                1. Issue To Staff ⬇
+                1. Issue to Staff
               </button>
               <button
                 type="button"
                 onClick={() => handleTransactionTypeSwitch('RETURN_TO_STORE')}
-                className={`py-2.5 text-[10px] uppercase tracking-wider rounded-lg transition-all font-sans ${transactionType === 'RETURN_TO_STORE' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200/50'}`}
+                className={`py-2.5 text-xs font-medium rounded-lg transition-all ${transactionType === 'RETURN_TO_STORE' ? 'bg-white text-slate-900 font-semibold shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
               >
-                2. Return To Store ⬆
+                2. Return to Store
               </button>
             </div>
           </div>
@@ -211,60 +204,66 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
 
           {transactionType === 'ISSUE_TO_STAFF' ? (
             <>
-              <div className="space-y-1.5">
-                <label className="text-[10px] text-slate-500 uppercase tracking-wider block font-sans">Source Issuing Warehouse</label>
-                <select className="w-full px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-lg text-xs text-slate-700 outline-none font-mono tracking-wide uppercase cursor-not-allowed" value={warehouseDomain} disabled>
-                  <option value="MAIN_MATERIAL_STORES">ELISHA MAIN MATERIAL STORES</option>
+              <div className="space-y-2">
+                {/* 💡 FIXED: High-contrast Dark Label & Title case */}
+                <label className="text-xs text-slate-800 font-semibold tracking-wide block">Source Issuing Warehouse</label>
+                <select className="w-full px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-lg text-xs text-slate-700 outline-none tracking-wide" value={warehouseDomain} disabled>
+                  <option value="MAIN_MATERIAL_STORES">Elisha Main Material Stores</option>
                 </select>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-[10px] text-slate-500 uppercase tracking-wider block font-sans">Target Destination Staff (Recipient Custodian)</label>
+              <div className="space-y-2">
+                {/* 💡 FIXED: High-contrast Dark Label & Title case */}
+                <label className="text-xs text-slate-800 font-semibold tracking-wide block">Target Destination Staff (Recipient Custodian)</label>
                 <select
-                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-black outline-none focus:border-slate-400 focus:bg-white cursor-pointer uppercase font-mono tracking-wide"
+                  className="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-900 outline-none focus:border-slate-500 cursor-pointer tracking-wide"
                   value={selectedStaffId}
                   onChange={e => setSelectedStaffId(e.target.value)}
                 >
-                  <option value="">-- SELECT TARGET MAINTENANCE STAFF --</option>
+                  <option value="">-- Select Target Maintenance Staff --</option>
                   {staffList.map(staff => (
-                    <option key={staff._id} value={staff._id}>{staff.username.toUpperCase()}</option>
+                    <option key={staff._id} value={staff._id}>{staff.username}</option>
                   ))}
                 </select>
               </div>
             </>
           ) : (
             <>
-              <div className="space-y-1.5">
-                <label className="text-[10px] text-slate-500 uppercase tracking-wider block font-sans">Source Issuing Custodian (Staff Member)</label>
+              <div className="space-y-2">
+                {/* 💡 FIXED: High-contrast Dark Label & Title case */}
+                <label className="text-xs text-slate-800 font-semibold tracking-wide block">Source Issuing Custodian (Staff Member)</label>
                 <select
-                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-black outline-none focus:border-slate-400 focus:bg-white cursor-pointer uppercase font-mono tracking-wide"
+                  className="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-900 outline-none focus:border-slate-500 cursor-pointer tracking-wide"
                   value={selectedStaffId}
                   onChange={e => setSelectedStaffId(e.target.value)}
                 >
-                  <option value="">-- SELECT SOURCE MAINTENANCE STAFF --</option>
+                  <option value="">-- Select Source Maintenance Staff --</option>
                   {staffList.map(staff => (
-                    <option key={staff._id} value={staff._id}>{staff.username.toUpperCase()}</option>
+                    <option key={staff._id} value={staff._id}>{staff.username}</option>
                   ))}
                 </select>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-[10px] text-slate-500 uppercase tracking-wider block font-sans">Target Destination Warehouse</label>
-                <select className="w-full px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-lg text-xs text-slate-700 outline-none font-mono tracking-wide uppercase cursor-not-allowed" value={warehouseDomain} disabled>
-                  <option value="MAIN_MATERIAL_STORES">ELISHA MAIN MATERIAL STORES</option>
+              <div className="space-y-2">
+                {/* 💡 FIXED: High-contrast Dark Label & Title case */}
+                <label className="text-xs text-slate-800 font-semibold tracking-wide block">Target Destination Warehouse</label>
+                <select className="w-full px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-lg text-xs text-slate-700 outline-none tracking-wide" value={warehouseDomain} disabled>
+                  <option value="MAIN_MATERIAL_STORES">Elisha Main Material Stores</option>
                 </select>
               </div>
             </>
           )}
 
           {/* MATERIAL SEARCH INGESTION BOX */}
-          <div className="space-y-1.5 relative" ref={toolRef}>
-            <label className="text-[10px] text-slate-500 uppercase tracking-wider block font-sans">Search & Append Material Items</label>
+          <div className="space-y-2 relative" ref={toolRef}>
+            {/* 💡 FIXED: High-contrast Dark Label & Title case */}
+            <label className="text-xs text-slate-800 font-semibold tracking-wide block">Search & Append Material Items</label>
             <div 
               onClick={() => setIsToolOpen(!isToolOpen)}
-              className="w-full flex items-center justify-between px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-400 cursor-pointer transition-all hover:bg-white focus:border-slate-400 shadow-sm"
+              className="w-full flex items-center justify-between px-3 py-2.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-600 cursor-pointer transition-all hover:border-slate-400 shadow-sm"
             >
-              <span className="tracking-wide">CLICK TO SEARCH AVAILABLE MATERIAL...</span>
+              {/* 💡 FIXED Placeholder: ලස්සන පැහැදිලි අළු පැහැයක් සමඟ සාමාන්‍ය අකුරු */}
+              <span className="tracking-wide">Click to search available workshop material...</span>
               <span className="text-slate-400 text-[10px]">▼</span>
             </div>
 
@@ -273,7 +272,7 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
                 <div className="flex items-center border border-slate-200 bg-slate-50 rounded-md px-2 py-1.5">
                   <input 
                     type="text"
-                    className="w-full bg-transparent border-none outline-none text-xs text-black placeholder:text-slate-400 uppercase font-mono tracking-wide"
+                    className="w-full bg-transparent border-none outline-none text-xs text-black placeholder:text-slate-400 font-mono tracking-wide"
                     placeholder="Type SKU Code or Item Description..."
                     value={toolSearch}
                     onChange={e => setToolSearch(e.target.value)}
@@ -286,13 +285,13 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
                       <div 
                         key={idx}
                         onClick={() => handleAddItemToBasket(tool)}
-                        className="p-2 text-xs text-black hover:bg-slate-100 transition-colors cursor-pointer flex justify-between items-center font-mono tracking-wide uppercase border-b border-slate-100 last:border-none"
+                        className="p-2 text-xs text-black hover:bg-slate-100 transition-colors cursor-pointer flex justify-between items-center tracking-wide border-b border-slate-100 last:border-none"
                       >
-                        <div className="truncate pr-2">
-                          <span className="text-blue-600 font-bold mr-1">[{tool.itemCode}]</span>
-                          <span className="text-slate-800 font-sans normal-case">{tool.itemName}</span>
+                        <div className="truncate pr-2 text-left">
+                          <span className="text-blue-600 font-bold font-mono mr-1.5">[{tool.itemCode}]</span>
+                          <span className="text-slate-800">{tool.itemName}</span>
                         </div>
-                        <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded shrink-0">
+                        <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded shrink-0 font-mono">
                           {tool.maxAvailableQty} STK
                         </span>
                       </div>
@@ -306,12 +305,12 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
           </div>
         </div>
 
-        {/* RIGHT COMPONENT */}
+        {/* RIGHT COMPONENT: HIGH-CLARITY GRID BASKET */}
         <div className="col-span-12 lg:col-span-7 bg-white border border-slate-200 rounded-[24px] overflow-hidden text-left shadow-sm">
           
           <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-1.5">
             <LockIcon size={14} className="text-slate-500" />
-            <span className="text-xs uppercase tracking-wider text-slate-600 font-sans" style={{ fontWeight: 'normal' }}>
+            <span className="text-xs text-slate-600 font-sans" style={{ fontWeight: 'normal' }}>
               {transactionType === 'ISSUE_TO_STAFF' ? "Allocation Line Items Basket" : "Return Line Items Basket"} ({selectedItemsList.length})
             </span>
           </div>
@@ -332,8 +331,8 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
                   selectedItemsList.map((item) => (
                     <tr key={item.itemCode} className="bg-white hover:bg-slate-50/50 transition-colors">
                       <td className="px-4 py-3 border-r border-slate-200 tracking-wide text-left">
-                        <div className="text-black font-sans text-xs font-medium normal-case">{item.itemName}</div>
-                        <div className="text-[10px] text-slate-400 font-mono tracking-normal mt-0.5 uppercase">
+                        <div className="text-black font-sans text-xs font-medium">{item.itemName}</div>
+                        <div className="text-[10px] text-slate-400 font-mono tracking-normal mt-0.5">
                           SKU: <span className="text-blue-600 font-bold">[{item.itemCode}]</span> | SOURCE: {item.grnInvoiceCode}
                         </div>
                       </td>
@@ -383,10 +382,10 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
             <div className="p-4 bg-white border border-slate-300 rounded-xl text-left border-l-4 border-l-blue-600 shadow-sm">
               <div className="text-xs text-slate-700 uppercase leading-relaxed tracking-wide font-sans" style={{ fontWeight: 'normal' }}>
                 Ledger Dispatch Ready: Note <span className="font-bold text-blue-600 font-mono">{allocDocNumber}</span> will process a{' '}
-                <span className="font-bold text-black">
+                <span className="font-bold text-black font-sans">
                   {transactionType === 'ISSUE_TO_STAFF' 
-                    ? `STOCK HANDOVER FROM STORES TO [${currentSelectedStaff?.username.toUpperCase()}]` 
-                    : `STOCK RETURN FROM [${currentSelectedStaff?.username.toUpperCase()}] BACK TO STORES`}
+                    ? `Stock handover from stores to [${currentSelectedStaff?.username.toUpperCase()}]` 
+                    : `Stock return from [${currentSelectedStaff?.username.toUpperCase()}] back to stores`}
                 </span>{' '}
                 for <span className="font-bold text-black font-mono">{selectedItemsList.length}</span> line item(s).
               </div>
@@ -401,10 +400,10 @@ const ToolAllocation = ({ inventoryItems = [], staffList = [], onRefresh }) => {
             style={{ fontWeight: 'normal' }}
           >
             {loading 
-              ? 'PROCESSING TRANSACTION LEDGER INTERFACE...' 
+              ? 'Processing Transaction Ledger Interface...' 
               : transactionType === 'ISSUE_TO_STAFF' 
-                ? 'AUTHORIZE & POST MAINTENANCE STOCK ALLOCATION' 
-                : 'AUTHORIZE & POST MAINTENANCE STOCK RETURN NOTE'}
+                ? 'Authorize & Post Maintenance Stock Allocation' 
+                : 'Authorize & Post Maintenance Stock Return Note'}
           </button>
         </div>
 
